@@ -78,6 +78,11 @@ namespace BetterTames
         public static void OnLocalPlayerReady()
         {
             LogIfDebug("Local player is ready.", DebugFeature.Initialization);
+
+            // NEU: Initialisiere den PetProtectionPatch (lädt das Wisp-Prefab)
+            PetProtection.PetProtectionPatch.Initialize();
+
+            // (Der Rest der Methode bleibt gleich)
             if (!_corePatchesAppliedSession)
             {
                 ApplyCorePatches();
@@ -109,7 +114,7 @@ namespace BetterTames
                 LogIfDebug("Applying core feature patches...", DebugFeature.Initialization);
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
                 Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
-                Instance._harmony.PatchAll(typeof(PetProtection.MonsterAI_StunBehaviorPatches));
+                Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
                 LogIfDebug("Core feature patches applied.", DebugFeature.Initialization);
             }
             catch (Exception ex)

@@ -1,116 +1,58 @@
-﻿using System;
-using BepInEx.Configuration;
-using HarmonyLib;
-using BetterTames.ConfigSynchronization;
+﻿using HarmonyLib;
 
-namespace BetterTames.PetProtection 
-{ 
-    // Token: 0x0200000B RID: 11
+namespace BetterTames.PetProtection
+{
     [HarmonyPatch]
-    public static class MonsterAI_StunBehaviorPatches
+    public static class StunBehaviorPatches
     {
-        // Token: 0x0600004C RID: 76 RVA: 0x00003A1C File Offset: 0x00001C1C
+        /// <summary>
+        /// Verhindert, dass die KI eines "ausgeknockten" Tieres ausgeführt wird.
+        /// Stattdessen wird es gezwungen, liegen zu bleiben.
+        /// </summary>
         [HarmonyPatch(typeof(MonsterAI), "UpdateAI")]
         [HarmonyPrefix]
         public static bool PreventAIUpdateWhenStunned(MonsterAI __instance)
         {
-            ConfigSync configInstance = BetterTamesPlugin.ConfigInstance;
-            bool flag;
-            if (configInstance == null)
+            ZNetView nview = __instance.GetComponent<ZNetView>();
+            if (nview == null || !nview.IsValid()) return true;
+
+            ZDO zdo = nview.GetZDO();
+            if (zdo == null || !zdo.GetBool("isRecoveringFromStun", false))
             {
-                flag = true;
+                return true; // Nicht im Schutzmodus, normale KI ausführen.
             }
-            else
+
+            // Wenn im Schutzmodus:
+            // 1. Sicherstellen, dass das Tier sich nicht bewegt.
+            __instance.StopMoving();
+
+            // 2. Das Tier in die "schlafend"-Animation zwingen.
+            Character character = __instance.GetComponent<Character>();
+            if (character != null)
             {
-                ConfigSync.TamesConfig tames = configInstance.Tames;
-                bool? flag2;
-                if (tames == null)
-                {
-                    flag2 = null;
-                }
-                else
-                {
-                    ConfigEntry<bool> petProtectionEnabled = tames.PetProtectionEnabled;
-                    flag2 = ((petProtectionEnabled != null) ? new bool?(petProtectionEnabled.Value) : null);
-                }
-                bool? flag3 = flag2;
-                flag = !flag3.GetValueOrDefault();
+                character.GetZAnim()?.SetBool("sleeping", true);
             }
-            if (flag)
-            {
-                return true;
-            }
-            ZNetView component = __instance.GetComponent<ZNetView>();
-            if (component == null || !component.IsValid())
-            {
-                return true;
-            }
-            ZDO zdo = component.GetZDO();
-            Character component2 = __instance.GetComponent<Character>();
-            if (zdo != null && component2 != null && component2.IsTamed() && zdo.GetBool("isRecoveringFromStun", false))
-            {
-                if (component2.m_speed != 0f)
-                {
-                    component2.m_speed = 0f;
-                }
-                if (component2.m_walkSpeed != 0f)
-                {
-                    component2.m_walkSpeed = 0f;
-                }
-                if (component2.m_runSpeed != 0f)
-                {
-                    component2.m_runSpeed = 0f;
-                }
-                if (component2.m_swimSpeed != 0f)
-                {
-                    component2.m_swimSpeed = 0f;
-                }
-                return false;
-            }
-            return true;
+
+            // 3. Den Rest der normalen KI-Logik überspringen, um diesen Zustand beizubehalten.
+            return false;
         }
 
-        // Token: 0x0600004D RID: 77 RVA: 0x00003B28 File Offset: 0x00001D28
+        /// <summary>
+        /// Verhindert, dass "ausgeknockte" Humanoide einen Angriff starten.
+        /// </summary>
         [HarmonyPatch(typeof(Humanoid), "StartAttack")]
         [HarmonyPrefix]
         public static bool PreventAttackWhenStunned_Humanoid(Humanoid __instance)
         {
-            ConfigSync configInstance = BetterTamesPlugin.ConfigInstance;
-            bool flag;
-            if (configInstance == null)
+            if (!__instance.IsTamed()) return true;
+
+            ZNetView nview = __instance.GetComponent<ZNetView>();
+            if (nview != null && nview.IsValid() && nview.GetZDO().GetBool("isRecoveringFromStun", false))
             {
-                flag = true;
+                // Verhindere Angriffe, während das Tier am Boden ist.
+                return false;
             }
-            else
-            {
-                ConfigSync.TamesConfig tames = configInstance.Tames;
-                bool? flag2;
-                if (tames == null)
-                {
-                    flag2 = null;
-                }
-                else
-                {
-                    ConfigEntry<bool> petProtectionEnabled = tames.PetProtectionEnabled;
-                    flag2 = ((petProtectionEnabled != null) ? new bool?(petProtectionEnabled.Value) : null);
-                }
-                bool? flag3 = flag2;
-                flag = !flag3.GetValueOrDefault();
-            }
-            if (flag || !__instance.IsTamed())
-            {
-                return true;
-            }
-            ZNetView component = __instance.GetComponent<ZNetView>();
-            if (component != null && component.IsValid())
-            {
-                ZDO zdo = component.GetZDO();
-                if (zdo != null && zdo.GetBool("isRecoveringFromStun", false))
-                {
-                    BetterTamesPlugin.LogIfDebug("Attack attempt by " + __instance.m_name + " (Humanoid) blocked due to PetProtection stun.", DebugFeature.PetProtection);
-                    return false;
-                }
-            }
+
             return true;
         }
     }

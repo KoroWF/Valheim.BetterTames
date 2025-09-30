@@ -55,7 +55,7 @@ namespace BetterTames.DistanceTeleport
             Rigidbody rb = petCharacter.GetComponent<Rigidbody>();
             if (rb != null && !rb.isKinematic)
             {
-                rb.velocity = Vector3.zero;
+                rb.linearVelocity = Vector3.zero; // <-- KORRIGIERT
                 rb.angularVelocity = Vector3.zero;
             }
 

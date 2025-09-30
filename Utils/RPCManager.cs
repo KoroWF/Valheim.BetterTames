@@ -20,7 +20,7 @@ namespace BetterTames.Utils
             // Server-seitige RPCs
             if (ZNet.instance.IsServer())
             {
-                ZRoutedRpc.instance.Register<string>(BetterTamesPlugin.RPC_REQUEST_PET_PROTECTION, RPC_RequestPetProtection_Server);
+                //ZRoutedRpc.instance.Register<string>(BetterTamesPlugin.RPC_REQUEST_PET_PROTECTION, RPC_RequestPetProtection_Server);
                 ZRoutedRpc.instance.Register<ZDOID, ZPackage>(BetterTamesPlugin.RPC_PREPARE_PETS_FOR_TELEPORT, RPC_PreparePetsForTeleport_Server);
                 ZRoutedRpc.instance.Register<ZPackage>(BetterTamesPlugin.RPC_RECREATE_PETS_AT_DESTINATION, RPC_RecreatePetsAtDestination_Server);
             }
@@ -28,39 +28,39 @@ namespace BetterTames.Utils
 
         #region Server-Side RPC Handlers
 
-        private static void RPC_RequestPetProtection_Server(long senderPeerId, string zdoID_str_fromClient)
-        {
-            try
-            {
-                if (!ZNet.instance.IsServer()) return;
+        //private static void RPC_RequestPetProtection_Server(long senderPeerId, string zdoID_str_fromClient)
+        //{
+        //    try
+        //    {
+        //        if (!ZNet.instance.IsServer()) return;
 
-                ZDOID zdoid = ParseZDOID(zdoID_str_fromClient);
-                if (zdoid.IsNone()) return;
+        //        ZDOID zdoid = ParseZDOID(zdoID_str_fromClient);
+        //        if (zdoid.IsNone()) return;
 
-                ZDO zdo = ZDOMan.instance.GetZDO(zdoid);
-                if (zdo == null || !zdo.IsValid()) return;
+        //        ZDO zdo = ZDOMan.instance.GetZDO(zdoid);
+        //        if (zdo == null || !zdo.IsValid()) return;
 
-                // Server muss Eigentümer des ZDOs sein, um es zu modifizieren
-                if (zdo.GetOwner() != ZNet.GetUID())
-                {
-                    zdo.SetOwner(ZNet.GetUID());
-                }
+        //        // Server muss Eigentümer des ZDOs sein, um es zu modifizieren
+        //        if (zdo.GetOwner() != ZNet.GetUID())
+        //        {
+        //            zdo.SetOwner(ZNet.GetUID());
+        //        }
 
-                ZNetView znetView = ZNetScene.instance.FindInstance(zdo);
-                if (znetView != null)
-                {
-                    Character character = znetView.GetComponent<Character>();
-                    if (character != null)
-                    {
-                        PetProtectionPatch.ApplyPetProtectionLogic(character, znetView, zdo);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                BetterTamesPlugin.LogIfDebug($"Exception in RPC_RequestPetProtection_Server: {ex}", DebugFeature.PetProtection);
-            }
-        }
+        //        ZNetView znetView = ZNetScene.instance.FindInstance(zdo);
+        //        if (znetView != null)
+        //        {
+        //            Character character = znetView.GetComponent<Character>();
+        //            if (character != null)
+        //            {
+        //                PetProtectionPatch.ApplyPetProtectionLogic(character, znetView, zdo);
+        //            }
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        BetterTamesPlugin.LogIfDebug($"Exception in RPC_RequestPetProtection_Server: {ex}", DebugFeature.PetProtection);
+        //    }
+        //}
 
         private static void RPC_PreparePetsForTeleport_Server(long senderPeerID, ZDOID teleportingPlayerZDOID, ZPackage pkg)
         {
