@@ -13,6 +13,8 @@ namespace BetterTames.PetProtection
         private static readonly HashSet<string> s_exceptionPrefabs = new HashSet<string>();
         private static readonly Dictionary<ZDOID, GameObject> s_wispInstances = new Dictionary<ZDOID, GameObject>();
         private static GameObject wispPrefab;
+
+
         // FÜGE DIESE NEUE METHODE HINZU:
         /// <summary>
         /// Eine öffentliche Methode, mit der andere Klassen sicher prüfen können, ob ein Tier ausgeknockt ist.
@@ -65,6 +67,23 @@ namespace BetterTames.PetProtection
         [HarmonyPrefix]
         public static bool ApplyDamagePrefix(Character __instance, HitData hit)
         {
+            // --- NEU: Ausnahme für das Schlachtermesser ---
+            Character attacker = hit.GetAttacker();
+            // Prüfen, ob der Angreifer ein Spieler ist
+            if (attacker != null && attacker.IsPlayer())
+            {
+                Player playerAttacker = (Player)attacker;
+                ItemDrop.ItemData currentWeapon = playerAttacker.GetCurrentWeapon();
+
+                // Prüfen, ob die Waffe das Schlachtermesser ist
+                if (currentWeapon != null && currentWeapon.m_dropPrefab.name == "KnifeButcher")
+                {
+                    BetterTamesPlugin.LogIfDebug("Butcher Knife used. Bypassing pet protection.", DebugFeature.PetProtection);
+                    return true; // Lass den originalen Code laufen, das Tier stirbt normal.
+                }
+            }
+            // --- ENDE DER NEUEN LOGIK ---
+
             if (!BetterTamesPlugin.ConfigInstance.Tames.PetProtectionEnabled.Value || !ShouldApplyPetProtection(__instance))
                 return true;
 
