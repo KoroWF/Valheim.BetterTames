@@ -1,7 +1,9 @@
-﻿using HarmonyLib;
+﻿using BetterTames.DistanceTeleport;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using static TMPro.SpriteAssetUtilities.TexturePacker_JsonArray;
 
 namespace BetterTames.PetProtection
 {
@@ -11,11 +13,22 @@ namespace BetterTames.PetProtection
         private static readonly HashSet<string> s_exceptionPrefabs = new HashSet<string>();
         private static readonly Dictionary<ZDOID, GameObject> s_wispInstances = new Dictionary<ZDOID, GameObject>();
         private static GameObject wispPrefab;
+        // FÜGE DIESE NEUE METHODE HINZU:
+        /// <summary>
+        /// Eine öffentliche Methode, mit der andere Klassen sicher prüfen können, ob ein Tier ausgeknockt ist.
+        /// </summary>
+        public static bool IsPetKnockedOut(ZDOID petId)
+        {
+            return s_wispInstances.ContainsKey(petId);
+        }
 
         #region Setup and Initialization
         public static void Initialize()
         {
+
             wispPrefab = ZNetScene.instance.GetPrefab("LuredWisp");
+            BetterTamesPlugin.LogIfDebug("Stunned Pets get Transformed into: " + wispPrefab , DebugFeature.PetProtection);
+
             if (wispPrefab != null)
             {
                 BetterTamesPlugin.LogIfDebug("LuredWisp prefab cached successfully.", DebugFeature.PetProtection);
@@ -84,32 +97,32 @@ namespace BetterTames.PetProtection
             ZDO zdo = nview.GetZDO();
             if (!zdo.GetBool("isRecoveringFromStun", false)) return;
 
-            // --- NEUE LOGIK: WISP-TELEPORT PRÜFEN ---
-            float wispTeleportTimestamp = zdo.GetFloat("BT_WispTeleportTimestamp", 0f);
-            if (wispTeleportTimestamp > 0f && ZNet.instance.GetTimeSeconds() >= wispTeleportTimestamp)
-            {
                 // Finde den zugehörigen Wisp in unserem Dictionary
                 if (s_wispInstances.TryGetValue(zdo.m_uid, out GameObject wispInstance) && wispInstance != null)
                 {
-                    BetterTamesPlugin.LogIfDebug("Teleporting wisp to player.", DebugFeature.PetProtection);
+                    // 1. Hole die Character-Komponente vom Wisp (das "tamed ding", das wir porten wollen)
+                    Character wispCharacter = wispInstance.GetComponent<Character>();
 
-                    // Finde das Ziel (den Spieler)
-                    Character character = __instance.GetComponent<Character>();
-                    if (character != null && character.GetComponent<MonsterAI>()?.GetFollowTarget() is GameObject followTarget)
+                    // 2. Hole die KI des *originalen* Tieres, um den Spieler zu finden
+                    MonsterAI petAI = __instance.GetComponent<MonsterAI>();
+
+                    // Stelle sicher, dass wir alles haben, was wir brauchen
+                    if (wispCharacter != null && petAI != null)
                     {
-                        // Berechne eine Position hinter dem Spieler
-                        var spawnPositions = BetterTames.DistanceTeleport.DistanceTeleportLogic.CalculateDistributedSpawnPositions(followTarget.transform.position, followTarget.transform.rotation, 1);
-                        if (spawnPositions.Count > 0)
+                        GameObject followTarget = petAI.GetFollowTarget();
+                        Player player = followTarget?.GetComponent<Player>();
+
+                        // 3. Wenn wir den Spieler gefunden haben, führe den Teleport aus
+                        if (player != null)
                         {
-                            // Setze die Position des Wisps direkt
-                            wispInstance.transform.position = spawnPositions[0];
+                            BetterTamesPlugin.LogIfDebug("Teleporting wisp to player.", DebugFeature.PetProtection);
+
+                            // Rufe deine bewährte Methode mit den korrekten Objekten auf
+                            DistanceTeleportLogic.ExecuteTeleportBehindPlayer(player, followTarget);
                         }
                     }
                 }
 
-                // Wichtig: Setze den Timer zurück, damit der Teleport nur einmal passiert
-                zdo.Set("BT_WispTeleportTimestamp", 0f);
-            }
 
             // --- BESTEHENDE LOGIK: RÜCKVERWANDLUNG PRÜFEN ---
             float revivalTimestamp = zdo.GetFloat("BT_RevivalTimestamp", 0f);
@@ -132,6 +145,12 @@ namespace BetterTames.PetProtection
             float revivalTime = (float)ZNet.instance.GetTimeSeconds() + BetterTamesPlugin.ConfigInstance.Tames.PetProtectionStunDuration.Value;
             zdo.Set("BT_RevivalTimestamp", revivalTime);
 
+            // 2. Lebensbalken und Namen aus dem UI entfernen
+            if (EnemyHud.instance != null)
+            {
+                EnemyHud.instance.RemoveCharacterHud(character);
+            }
+
             // --- NEU: Zeitstempel für den Wisp-Teleport setzen (2 Sekunden in der Zukunft) ---
             float wispTeleportTime = (float)ZNet.instance.GetTimeSeconds() + 2f;
             zdo.Set("BT_WispTeleportTimestamp", wispTeleportTime);
@@ -142,16 +161,18 @@ namespace BetterTames.PetProtection
             {
                 GameObject wispInstance = UnityEngine.Object.Instantiate(wispPrefab, character.transform.position, Quaternion.identity);
 
-                // KORREKTUR 2 & 3: Korrekte KI-Klasse holen und C# 7.3-Syntax verwenden
-                MonsterAI wispAI = wispInstance.GetComponent<MonsterAI>();
                 MonsterAI originalPetAI = character.GetComponent<MonsterAI>();
-                if (wispAI != null && originalPetAI != null)
+                GameObject followTarget = originalPetAI.GetFollowTarget();
+
+                Player player = followTarget?.GetComponent<Player>();
+
+                // 3. Wenn wir den Spieler gefunden haben, führe den Teleport aus
+                if (player != null)
                 {
-                    GameObject followTarget = originalPetAI.GetFollowTarget();
-                    if (followTarget != null)
-                    {
-                        wispAI.SetFollowTarget(followTarget);
-                    }
+                    BetterTamesPlugin.LogIfDebug("Teleporting Soul to player.", DebugFeature.PetProtection);
+
+                    // Rufe deine bewährte Methode mit den korrekten Objekten auf
+                    DistanceTeleportLogic.ExecuteTeleportBehindPlayer(character, followTarget);
                 }
                 s_wispInstances[zdo.m_uid] = wispInstance;
             }
@@ -184,6 +205,11 @@ namespace BetterTames.PetProtection
 
         private static void SetRenderersVisible(Character character, bool visible)
         {
+            foreach (Collider col in character.GetComponentsInChildren<Collider>())
+            {
+                col.enabled = visible;
+            }
+
             foreach (Renderer renderer in character.GetComponentsInChildren<Renderer>())
             {
                 renderer.enabled = visible;

@@ -1,4 +1,5 @@
-﻿using BetterTames.PetProtection;
+﻿using BetterTames.DistanceTeleport;
+using BetterTames.PetProtection;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -27,40 +28,6 @@ namespace BetterTames.Utils
         }
 
         #region Server-Side RPC Handlers
-
-        //private static void RPC_RequestPetProtection_Server(long senderPeerId, string zdoID_str_fromClient)
-        //{
-        //    try
-        //    {
-        //        if (!ZNet.instance.IsServer()) return;
-
-        //        ZDOID zdoid = ParseZDOID(zdoID_str_fromClient);
-        //        if (zdoid.IsNone()) return;
-
-        //        ZDO zdo = ZDOMan.instance.GetZDO(zdoid);
-        //        if (zdo == null || !zdo.IsValid()) return;
-
-        //        // Server muss Eigentümer des ZDOs sein, um es zu modifizieren
-        //        if (zdo.GetOwner() != ZNet.GetUID())
-        //        {
-        //            zdo.SetOwner(ZNet.GetUID());
-        //        }
-
-        //        ZNetView znetView = ZNetScene.instance.FindInstance(zdo);
-        //        if (znetView != null)
-        //        {
-        //            Character character = znetView.GetComponent<Character>();
-        //            if (character != null)
-        //            {
-        //                PetProtectionPatch.ApplyPetProtectionLogic(character, znetView, zdo);
-        //            }
-        //        }
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        BetterTamesPlugin.LogIfDebug($"Exception in RPC_RequestPetProtection_Server: {ex}", DebugFeature.PetProtection);
-        //    }
-        //}
 
         private static void RPC_PreparePetsForTeleport_Server(long senderPeerID, ZDOID teleportingPlayerZDOID, ZPackage pkg)
         {
@@ -98,9 +65,9 @@ namespace BetterTames.Utils
             }
         }
 
+        // In RPCManager.cs
         private static void RPC_RecreatePetsAtDestination_Server(long senderPeerID, ZPackage pkg)
         {
-            // TODO: Diese Methode sollte idealerweise in eine `DistanceTeleportLogic`-Klasse verschoben werden.
             if (!ZNet.instance.IsServer()) return;
 
             Vector3 destinationPos = pkg.ReadVector3();
@@ -117,8 +84,8 @@ namespace BetterTames.Utils
 
             BetterTamesPlugin.LogIfDebug($"SERVER: Recreating {cachedPets.Count} pets for player {playerZDOID} at {destinationPos}.", DebugFeature.TeleportFollow);
 
-            // Logik zur verteilten Positionierung der Haustiere
-            var spawnPoints = BetterTames.DistanceTeleport.DistanceTeleportLogic.CalculateDistributedSpawnPositions(destinationPos, playerRot, cachedPets.Count);
+            // KORREKTUR: Rufe die richtige Methode auf, um eine LISTE von Positionen zu erhalten.
+            var spawnPoints = DistanceTeleportLogic.CalculateDistributedSpawnPositions(destinationPos, playerRot, cachedPets.Count);
 
             for (int i = 0; i < cachedPets.Count; i++)
             {
@@ -135,7 +102,6 @@ namespace BetterTames.Utils
             }
             serverPetTeleportCache.Remove(playerZDOID);
         }
-
         #endregion
 
         #region Client-Side RPC Handlers

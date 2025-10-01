@@ -99,6 +99,7 @@ namespace BetterTames
                 LogIfDebug("Applying initial patches (Initialization & PetProtection)...", DebugFeature.Initialization);
                 _harmony.PatchAll(typeof(PetProtection.PetProtectionPatch));
                 _harmony.PatchAll(typeof(InitializationPatches));
+                _harmony.PatchAll(typeof(PetProtection.EnemyHud_TestShow_Patch));
                 LogIfDebug("Initial patches applied.", DebugFeature.Initialization);
             }
             catch (Exception ex)
