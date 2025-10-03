@@ -62,41 +62,35 @@ namespace BetterTames.PetProtection
             return !s_exceptionPrefabs.Contains(prefabName);
         }
         #endregion
-
         [HarmonyPatch(typeof(Character), "ApplyDamage")]
         [HarmonyPrefix]
         public static bool ApplyDamagePrefix(Character __instance, HitData hit)
         {
-            // --- NEU: Ausnahme für das Schlachtermesser ---
-            Character attacker = hit.GetAttacker();
-            // Prüfen, ob der Angreifer ein Spieler ist
-            if (attacker != null && attacker.IsPlayer())
+            ZNetView nview = __instance.GetComponent<ZNetView>();
+            ZDO zdo = nview.GetZDO();
+            if (nview != null && nview.IsValid())
             {
-                Player playerAttacker = (Player)attacker;
-                ItemDrop.ItemData currentWeapon = playerAttacker.GetCurrentWeapon();
 
-                // Prüfen, ob die Waffe das Schlachtermesser ist
-                if (currentWeapon != null && currentWeapon.m_dropPrefab.name == "KnifeButcher")
+                if (zdo.GetBool("BT_MercyKill", false))
                 {
-                    BetterTamesPlugin.LogIfDebug("Butcher Knife used. Bypassing pet protection.", DebugFeature.PetProtection);
-                    return true; // Lass den originalen Code laufen, das Tier stirbt normal.
+                    BetterTamesPlugin.LogIfDebug($"{__instance.m_name} marked for MercyKill (ZDOID: {zdo.m_uid}). Bypassing pet protection. Initial Health: {__instance.GetHealth()}, Hit Damage: {hit.GetTotalDamage()}", DebugFeature.PetProtection);
+                    zdo.Set("BT_MercyKill", false); // Flag zurücksetzen
+                    return true; // Lass den Schaden durch, unabhängig vom Owner
                 }
             }
-            // --- ENDE DER NEUEN LOGIK ---
 
             if (!BetterTamesPlugin.ConfigInstance.Tames.PetProtectionEnabled.Value || !ShouldApplyPetProtection(__instance))
                 return true;
 
-            ZNetView nview = __instance.GetComponent<ZNetView>();
             if (nview == null || !nview.IsValid()) return true;
 
-            ZDO zdo = nview.GetZDO();
             if (zdo.GetBool("isRecoveringFromStun", false))
                 return false;
 
             if (__instance.GetHealth() > hit.GetTotalDamage())
                 return true;
 
+            // Nur der Owner führt die Wisp-Transformation aus
             if (nview.IsOwner())
             {
                 ApplyWispTransform(__instance, nview, zdo);

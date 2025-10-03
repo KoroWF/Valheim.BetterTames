@@ -27,6 +27,7 @@ namespace BetterTames
         public const string RPC_TELEPORT_SYNC = "BT_TeleportSync";
         public const string RPC_PREPARE_PETS_FOR_TELEPORT = "BT_PreparePetsForTeleport";
         public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
+        public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
         #endregion
 
         #region Properties
@@ -73,6 +74,7 @@ namespace BetterTames
         {
             LogIfDebug("ZNet is ready. Registering RPCs...", DebugFeature.Initialization);
             BetterTames.Utils.RPCManager.RegisterRPCs();
+            LogIfDebug($"RPC registration completed. ZRoutedRpc instance active: {ZRoutedRpc.instance != null}", DebugFeature.Initialization);
         }
 
         public static void OnLocalPlayerReady()
@@ -116,6 +118,7 @@ namespace BetterTames
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
                 Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
                 Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
+                Instance._harmony.PatchAll(typeof(PetProtection.ButcherKnifePatch));
                 LogIfDebug("Core feature patches applied.", DebugFeature.Initialization);
             }
             catch (Exception ex)

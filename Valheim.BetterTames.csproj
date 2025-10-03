@@ -86,6 +86,7 @@
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />
     <Compile Include="MakeCommandable\MakeCommandable.cs" />
     <Compile Include="DistanceTeleport\DistanceTeleportPatch.cs" />
+    <Compile Include="PetProtection\ButcherKnifePatch.cs" />
     <Compile Include="PetProtection\EnemyHudPatch.cs" />
     <Compile Include="PetProtection\PetProtectionPatch.cs" />
     <Compile Include="PetProtection\StunBehaviorPatches.cs" />

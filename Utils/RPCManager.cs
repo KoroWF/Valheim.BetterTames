@@ -14,14 +14,18 @@ namespace BetterTames.Utils
         public static void RegisterRPCs()
         {
             BetterTamesPlugin.LogIfDebug("Registering RPCs...", DebugFeature.Initialization);
-
-            // Client-seitige RPCs
+            if (ZRoutedRpc.instance == null)
+            {
+                BetterTamesPlugin.LogIfDebug("ERROR: ZRoutedRpc.instance is null – RPC registration skipped!", DebugFeature.Initialization);
+                return;
+            }
             ZRoutedRpc.instance.Register<string, ZPackage>(BetterTamesPlugin.RPC_TELEPORT_SYNC, RPC_TeleportSync_Client);
+            BetterTamesPlugin.LogIfDebug($"Attempting to register RPC: {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL}", DebugFeature.Initialization);
+            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, RPC_MercyKill_AllClients);
+            BetterTamesPlugin.LogIfDebug($"RPC {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL} registered successfully.", DebugFeature.Initialization);
 
-            // Server-seitige RPCs
             if (ZNet.instance.IsServer())
             {
-                //ZRoutedRpc.instance.Register<string>(BetterTamesPlugin.RPC_REQUEST_PET_PROTECTION, RPC_RequestPetProtection_Server);
                 ZRoutedRpc.instance.Register<ZDOID, ZPackage>(BetterTamesPlugin.RPC_PREPARE_PETS_FOR_TELEPORT, RPC_PreparePetsForTeleport_Server);
                 ZRoutedRpc.instance.Register<ZPackage>(BetterTamesPlugin.RPC_RECREATE_PETS_AT_DESTINATION, RPC_RecreatePetsAtDestination_Server);
             }
@@ -106,6 +110,31 @@ namespace BetterTames.Utils
 
         #region Client-Side RPC Handlers
 
+        private static void RPC_MercyKill_AllClients(long sender, ZDOID targetZDOID)
+        {
+            BetterTamesPlugin.LogIfDebug($"RPC_MercyKill_AllClients triggered for ZDOID: {targetZDOID} from sender: {sender}", DebugFeature.PetProtection);
+            ZDO targetZDO = ZDOMan.instance.GetZDO(targetZDOID);
+            if (targetZDO == null)
+            {
+                BetterTamesPlugin.LogIfDebug($"ZDO for ZDOID {targetZDOID} not found. Cannot process MercyKill.", DebugFeature.PetProtection);
+                return;
+            }
+
+            GameObject targetObject = ZNetScene.instance.FindInstance(targetZDOID);
+            if (targetObject == null)
+            {
+                BetterTamesPlugin.LogIfDebug($"GameObject for ZDOID {targetZDOID} not found, but ZDO exists. Setting flag via ZDO.", DebugFeature.PetProtection);
+            }
+            else
+            {
+                BetterTamesPlugin.LogIfDebug($"Found GameObject for ZDOID {targetZDOID}.", DebugFeature.PetProtection);
+            }
+
+            // Setze die Flag direkt über die ZDO, unabhängig vom GameObject
+            targetZDO.Set("BT_MercyKill", true);
+            BetterTamesPlugin.LogIfDebug($"BT_MercyKill flag set for ZDOID {targetZDOID} via ZDO. Pet protection bypassed on next damage.", DebugFeature.PetProtection);
+        }
+
         private static void RPC_TeleportSync_Client(long sender, string zdoID_str, ZPackage pkg)
         {
             try
@@ -138,6 +167,7 @@ namespace BetterTames.Utils
                 BetterTamesPlugin.LogIfDebug($"Exception in RPC_TeleportSync_Client: {ex}", DebugFeature.TeleportFollow);
             }
         }
+
 
         #endregion
 
