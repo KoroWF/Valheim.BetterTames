@@ -7,7 +7,7 @@ namespace BetterTames.PetProtection
     {
         /// <summary>
         /// Dieser Postfix-Patch läuft, nachdem das Spiel entschieden hat, ob ein HUD angezeigt werden soll.
-        /// Wir überschreiben das Ergebnis zu 'false', wenn das Tier von uns ausgeknockt wurde.
+        /// Wir überschreiben das Ergebnis zu 'false', wenn das Tier von uns ausgeknockt wurde oder ein Wisp ist.
         /// </summary>
         [HarmonyPostfix]
         public static void HideKnockedOutHud(Character c, ref bool __result)
@@ -24,11 +24,16 @@ namespace BetterTames.PetProtection
                 return;
             }
 
-            // Prüfe über unsere sichere Methode, ob das Tier ausgeknockt ist.
-            if (c.GetComponent<ZNetView>() is ZNetView nview && PetProtectionPatch.IsPetKnockedOut(nview.GetZDO().m_uid))
+            ZNetView nview = c.GetComponent<ZNetView>();
+            if (nview != null && nview.IsValid())
             {
-                // Wenn ja, überschreibe das Ergebnis und zwinge das HUD zum Ausblenden.
-                __result = false;
+                ZDOID zdoId = nview.GetZDO().m_uid;
+                // Prüfe, ob das Tier ausgeknockt ist (lokal) oder in Wisp-Form ist (synchronisiert)
+                if (PetProtectionPatch.IsPetKnockedOut(zdoId) || PetProtectionPatch.IsTransformedToWisp(zdoId))
+                {
+                    BetterTamesPlugin.LogIfDebug($"Hiding HUD for {c.m_name} (ZDOID: {zdoId}) due to Wisp or knocked out state.", DebugFeature.PetProtection);
+                    __result = false; // Blende das HUD aus
+                }
             }
         }
     }

@@ -24,6 +24,15 @@ namespace BetterTames.PetProtection
             return s_wispInstances.ContainsKey(petId);
         }
 
+        /// <summary>
+        /// Prüft, ob ein Tier in Wisp-Form ist (über ZDO synchronisiert).
+        /// </summary>
+        public static bool IsTransformedToWisp(ZDOID petId)
+        {
+            ZDO zdo = ZDOMan.instance.GetZDO(petId);
+            return zdo != null && zdo.GetBool("BT_TransformedToWisp", false);
+        }
+
         #region Setup and Initialization
         public static void Initialize()
         {
@@ -167,6 +176,7 @@ namespace BetterTames.PetProtection
             // --- NEU: Zeitstempel für den Wisp-Teleport setzen (2 Sekunden in der Zukunft) ---
             float wispTeleportTime = (float)ZNet.instance.GetTimeSeconds() + 2f;
             zdo.Set("BT_WispTeleportTimestamp", wispTeleportTime);
+            zdo.Set("BT_TransformedToWisp", true);
 
             SetRenderersVisible(character, false);
 
@@ -207,6 +217,7 @@ namespace BetterTames.PetProtection
             // KORREKTUR 4: Konsistent SetRenderersVisible verwenden
             SetRenderersVisible(character, true);
 
+            zdo.Set("BT_TransformedToWisp", false);
             zdo.Set("isRecoveringFromStun", false);
             zdo.Set("BT_RevivalTimestamp", 0f);
 
