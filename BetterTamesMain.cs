@@ -28,9 +28,17 @@ namespace BetterTames
         public const string RPC_PREPARE_PETS_FOR_TELEPORT = "BT_PreparePetsForTeleport";
         public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
         public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
+        public const string RPC_PET_SET_VISIBLE = "BT_SetPetVisible";
+        public const string RPC_REMOVE_WISP = "BT_RemoveWisp";
+        public const string RPC_REQUEST_UNFOLLOW = "BT_RequestUnfollow";
+        public const string RPC_CONFIRM_UNFOLLOW = "BT_ConfirmUnfollow";
+        private static readonly Dictionary<long, int> playerFollowerCounts = new Dictionary<long, int>();  // Player SteamID → Count
+
         #endregion
 
         #region Properties
+        private static int CachedMaxPets;  // Statisch oder Instance-Feld
+        private static bool CachedPetProtectionEnabled;
         public static BetterTamesPlugin Instance { get; private set; }
         public static ConfigSync ConfigInstance { get; private set; }
         public static ServerSync.ConfigSync _configSync;
@@ -54,6 +62,14 @@ namespace BetterTames
             ConfigInstance = new ConfigSync(this);
 
             LogIfDebug("AWAKE: Config instances initialized.", DebugFeature.Initialization);
+
+            // Cache häufig genutzte Configs
+            CachedMaxPets = ConfigInstance.Tames.MaxFollowingPets.Value;
+            CachedPetProtectionEnabled = ConfigInstance.Tames.PetProtectionEnabled.Value;
+
+            // Subscribe to changes for re-caching
+            ConfigInstance.Tames.MaxFollowingPets.SettingChanged += (s, e) => CachedMaxPets = ConfigInstance.Tames.MaxFollowingPets.Value;
+            ConfigInstance.Tames.PetProtectionEnabled.SettingChanged += (s, e) => CachedPetProtectionEnabled = ConfigInstance.Tames.PetProtectionEnabled.Value;
 
             // Subscribe to config changes
             ConfigInstance.Tames.PetProtectionExceptionPrefabs.SettingChanged += OnExceptionPrefabsSettingChanged;
@@ -84,7 +100,6 @@ namespace BetterTames
             // NEU: Initialisiere den PetProtectionPatch (lädt das Wisp-Prefab)
             PetProtection.PetProtectionPatch.Initialize();
 
-            // (Der Rest der Methode bleibt gleich)
             if (!_corePatchesAppliedSession)
             {
                 ApplyCorePatches();
@@ -116,9 +131,13 @@ namespace BetterTames
             {
                 LogIfDebug("Applying core feature patches...", DebugFeature.Initialization);
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
+                Instance._harmony.PatchAll(typeof(MakeCommandable.Player_TeleportTo_Patch));
                 Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
                 Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
                 Instance._harmony.PatchAll(typeof(PetProtection.ButcherKnifePatch));
+                Instance._harmony.PatchAll(typeof(PetProtection.WispInteractPatch));
+
+
                 LogIfDebug("Core feature patches applied.", DebugFeature.Initialization);
             }
             catch (Exception ex)
@@ -165,6 +184,31 @@ namespace BetterTames
             {
                 Instance.Logger.LogInfo($"[{feature}] {message}");
             }
+        }
+        #endregion
+
+        #region MakeCommandable Helper
+        // Helper: Update Count (statisch, aufrufbar aus Patches)
+        public static void UpdateFollowerCount(Player player, bool isFollowing)
+        {
+            long playerId = player.GetPlayerID();  // SteamID oder ZDO UID
+            if (!playerFollowerCounts.ContainsKey(playerId))
+                playerFollowerCounts[playerId] = 0;
+
+            int current = playerFollowerCounts[playerId];
+            if (isFollowing && current < BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value)
+                playerFollowerCounts[playerId]++;
+            else if (!isFollowing && current > 0)
+                playerFollowerCounts[playerId]--;
+
+            BetterTamesPlugin.LogIfDebug($"Updated follower count for {player.GetPlayerName()}: {playerFollowerCounts[playerId]} (isFollowing: {isFollowing})", DebugFeature.MakeCommandable);
+        }
+
+        // Helper: Get Count
+        public static int GetFollowerCount(Player player)
+        {
+            long playerId = player.GetPlayerID();
+            return playerFollowerCounts.ContainsKey(playerId) ? playerFollowerCounts[playerId] : 0;
         }
         #endregion
     }

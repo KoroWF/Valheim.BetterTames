@@ -31,7 +31,6 @@ namespace BetterTames.PetProtection
                 // Prüfe, ob das Tier ausgeknockt ist (lokal) oder in Wisp-Form ist (synchronisiert)
                 if (PetProtectionPatch.IsPetKnockedOut(zdoId) || PetProtectionPatch.IsTransformedToWisp(zdoId))
                 {
-                    BetterTamesPlugin.LogIfDebug($"Hiding HUD for {c.m_name} (ZDOID: {zdoId}) due to Wisp or knocked out state.", DebugFeature.PetProtection);
                     __result = false; // Blende das HUD aus
                 }
             }

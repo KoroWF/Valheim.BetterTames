@@ -3,7 +3,6 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using static TMPro.SpriteAssetUtilities.TexturePacker_JsonArray;
 
 namespace BetterTames.PetProtection
 {
@@ -11,11 +10,11 @@ namespace BetterTames.PetProtection
     public static class PetProtectionPatch
     {
         private static readonly HashSet<string> s_exceptionPrefabs = new HashSet<string>();
-        private static readonly Dictionary<ZDOID, GameObject> s_wispInstances = new Dictionary<ZDOID, GameObject>();
+        public static readonly Dictionary<ZDOID, GameObject> s_wispInstances = new Dictionary<ZDOID, GameObject>();
         private static GameObject wispPrefab;
+        private static readonly Dictionary<ZDOID, (ZNetView nview, MonsterAI ai)> cachedComponents =
+            new Dictionary<ZDOID, (ZNetView nview, MonsterAI ai)>(32);  // Pre-capacity (C# 7.3-kompatibel)
 
-
-        // FÜGE DIESE NEUE METHODE HINZU:
         /// <summary>
         /// Eine öffentliche Methode, mit der andere Klassen sicher prüfen können, ob ein Tier ausgeknockt ist.
         /// </summary>
@@ -36,9 +35,8 @@ namespace BetterTames.PetProtection
         #region Setup and Initialization
         public static void Initialize()
         {
-
             wispPrefab = ZNetScene.instance.GetPrefab("LuredWisp");
-            BetterTamesPlugin.LogIfDebug("Stunned Pets get Transformed into: " + wispPrefab , DebugFeature.PetProtection);
+            BetterTamesPlugin.LogIfDebug("Stunned Pets get Transformed into: " + wispPrefab, DebugFeature.PetProtection);
 
             if (wispPrefab != null)
             {
@@ -53,63 +51,83 @@ namespace BetterTames.PetProtection
         public static void UpdateExceptionPrefabs(string exceptionPrefabString)
         {
             s_exceptionPrefabs.Clear();
-            if (string.IsNullOrWhiteSpace(exceptionPrefabString)) return;
+            if (string.IsNullOrEmpty(exceptionPrefabString)) return;
 
-            var exceptions = exceptionPrefabString.Split(',');
-            foreach (var exception in exceptions)
+            string[] prefabs = exceptionPrefabString.Split(',');
+            foreach (string prefab in prefabs)
             {
-                s_exceptionPrefabs.Add(exception.Trim().ToLowerInvariant());
-            }
-        }
-
-        private static bool ShouldApplyPetProtection(Character character)
-        {
-            if (character == null || !character.IsTamed()) return false;
-            ZNetView nview = character.GetComponent<ZNetView>();
-            if (nview == null || !nview.IsValid()) return false;
-            string prefabName = ZNetScene.instance.GetPrefab(nview.GetZDO().GetPrefab()).name.ToLowerInvariant();
-            return !s_exceptionPrefabs.Contains(prefabName);
-        }
-        #endregion
-        [HarmonyPatch(typeof(Character), "ApplyDamage")]
-        [HarmonyPrefix]
-        public static bool ApplyDamagePrefix(Character __instance, HitData hit)
-        {
-            ZNetView nview = __instance.GetComponent<ZNetView>();
-            ZDO zdo = nview.GetZDO();
-            if (nview != null && nview.IsValid())
-            {
-
-                if (zdo.GetBool("BT_MercyKill", false))
+                if (!string.IsNullOrWhiteSpace(prefab))
                 {
-                    BetterTamesPlugin.LogIfDebug($"{__instance.m_name} marked for MercyKill (ZDOID: {zdo.m_uid}). Bypassing pet protection. Initial Health: {__instance.GetHealth()}, Hit Damage: {hit.GetTotalDamage()}", DebugFeature.PetProtection);
-                    zdo.Set("BT_MercyKill", false); // Flag zurücksetzen
-                    return true; // Lass den Schaden durch, unabhängig vom Owner
+                    s_exceptionPrefabs.Add(prefab.Trim());
                 }
             }
 
-            if (!BetterTamesPlugin.ConfigInstance.Tames.PetProtectionEnabled.Value || !ShouldApplyPetProtection(__instance))
-                return true;
-
-            if (nview == null || !nview.IsValid()) return true;
-
-            if (zdo.GetBool("isRecoveringFromStun", false))
-                return false;
-
-            if (__instance.GetHealth() > hit.GetTotalDamage())
-                return true;
-
-            // Nur der Owner führt die Wisp-Transformation aus
-            if (nview.IsOwner())
-            {
-                ApplyWispTransform(__instance, nview, zdo);
-            }
-
-            return false;
+            BetterTamesPlugin.LogIfDebug($"Updated exception prefabs: {string.Join(", ", s_exceptionPrefabs)}", DebugFeature.PetProtection);
         }
 
-        // In PetProtectionPatch.cs
-        [HarmonyPatch(typeof(MonsterAI), "UpdateAI")]
+        #endregion
+
+        #region Harmony Patches
+        [HarmonyPatch(typeof(Character), "Damage", new[] { typeof(HitData) })]  // FIX: Explizite Signatur für Überladung
+        [HarmonyPrefix]
+        public static bool ApplyDamagePrefix(Character __instance, HitData hit)
+        {
+            // Früher Null-Check
+            if (__instance == null || hit == null) return true;
+
+            ZNetView nview = __instance.GetComponent<ZNetView>();
+            if (nview == null || !nview.IsValid()) return true;
+
+            ZDO zdo = nview.GetZDO();
+            if (zdo == null) return true;
+
+            // MercyKill-Check ZUERST (vor allem anderen – umgeht alles)
+            bool isMercyKill = zdo.GetBool("BT_MercyKill", false);
+            if (isMercyKill)
+            {
+                zdo.Set("BT_MercyKill", false);  // Reset sofort (einmalig für diesen Hit)
+                BetterTamesPlugin.LogIfDebug($"MercyKill bypass activated for {__instance.m_name}. Flag reset.", DebugFeature.PetProtection);
+                return true;  // Lass Schaden durch → Tod, kein Stun
+            }
+
+            // Nur für Tamed und enabled (nach Flag)
+            if (!BetterTamesPlugin.ConfigInstance.Tames.PetProtectionEnabled.Value || !__instance.IsTamed()) return true;
+
+            // Exception-Check
+            if (s_exceptionPrefabs.Contains(__instance.gameObject.name)) return true;
+
+            float currentHealth = zdo.GetFloat(ZDOVars.s_health);
+            float maxHealth = __instance.GetMaxHealth();
+            float incomingDamage = hit.GetTotalDamage();
+
+            BetterTamesPlugin.LogIfDebug($"Pet {__instance.m_name}: Current HP {currentHealth}/{maxHealth}, Incoming {incomingDamage}", DebugFeature.PetProtection);
+
+            if (currentHealth > incomingDamage) return true;  // Überlebt normal
+
+            // Knockout-Logik: Setze auf 1 HP, stunne und transformiere
+            float stunDuration = BetterTamesPlugin.ConfigInstance.Tames.PetProtectionStunDuration.Value;
+            float revivalTime = (float)(ZNet.instance.GetTimeSeconds() + stunDuration);
+
+            zdo.Set(ZDOVars.s_health, 1f);  // Minimal HP
+            zdo.Set("isRecoveringFromStun", true);
+            zdo.Set("BT_RevivalTimestamp", revivalTime);
+            zdo.Set("BT_TransformedToWisp", true);
+
+            BetterTamesPlugin.LogIfDebug($"Knocking out {__instance.m_name} for {stunDuration}s. Revival at {revivalTime}", DebugFeature.PetProtection);
+
+            // Transformiere zu Wisp (lokal erst, sync via Flag)
+            ApplyWispTransform(__instance, nview, zdo);
+
+            // Sync an alle Clients
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_PET_PROTECTION_SYNC, nview.GetZDO().m_uid, true);
+
+            // Blockiere den tödlichen Schaden
+            return false;
+        }
+        /// <summary>
+        /// Postfix auf MonsterAI.UpdateAI: Prüft Revival-Timer und cached Components für Wisp-Teleport.
+        /// </summary>
+        [HarmonyPatch(typeof(MonsterAI), "UpdateAI")]  // <-- FIX: Explizites Attribut für den Target-Method
         [HarmonyPostfix]
         public static void KnockoutTimerPostfix(MonsterAI __instance)
         {
@@ -117,36 +135,9 @@ namespace BetterTames.PetProtection
             if (nview == null || !nview.IsOwner()) return;
 
             ZDO zdo = nview.GetZDO();
-            if (!zdo.GetBool("isRecoveringFromStun", false)) return;
+            if (zdo == null || !zdo.GetBool("isRecoveringFromStun", false)) return;
 
-                // Finde den zugehörigen Wisp in unserem Dictionary
-                if (s_wispInstances.TryGetValue(zdo.m_uid, out GameObject wispInstance) && wispInstance != null)
-                {
-                    // 1. Hole die Character-Komponente vom Wisp (das "tamed ding", das wir porten wollen)
-                    Character wispCharacter = wispInstance.GetComponent<Character>();
-
-                    // 2. Hole die KI des *originalen* Tieres, um den Spieler zu finden
-                    MonsterAI petAI = __instance.GetComponent<MonsterAI>();
-
-                    // Stelle sicher, dass wir alles haben, was wir brauchen
-                    if (wispCharacter != null && petAI != null)
-                    {
-                        GameObject followTarget = petAI.GetFollowTarget();
-                        Player player = followTarget?.GetComponent<Player>();
-
-                        // 3. Wenn wir den Spieler gefunden haben, führe den Teleport aus
-                        if (player != null)
-                        {
-                            BetterTamesPlugin.LogIfDebug("Teleporting wisp to player.", DebugFeature.PetProtection);
-
-                            // Rufe deine bewährte Methode mit den korrekten Objekten auf
-                            DistanceTeleportLogic.ExecuteTeleportBehindPlayer(player, followTarget);
-                        }
-                    }
-                }
-
-
-            // --- BESTEHENDE LOGIK: RÜCKVERWANDLUNG PRÜFEN ---
+            // Bestehende Logik: Rückverwandlung prüfen
             float revivalTimestamp = zdo.GetFloat("BT_RevivalTimestamp", 0f);
             if (revivalTimestamp > 0f && ZNet.instance.GetTimeSeconds() >= revivalTimestamp)
             {
@@ -156,48 +147,67 @@ namespace BetterTames.PetProtection
                     RevertWispTransform(character, nview, zdo);
                 }
             }
-        }
 
-        private static void ApplyWispTransform(Character character, ZNetView nview, ZDO zdo)
-        {
-            // ... (Logik zum Setzen von "isRecoveringFromStun", HP, und dem normalen RevivalTimestamp bleibt gleich) ...
-            zdo.Set("isRecoveringFromStun", true);
-            zdo.Set(ZDOVars.s_health, 1f);
-
-            float revivalTime = (float)ZNet.instance.GetTimeSeconds() + BetterTamesPlugin.ConfigInstance.Tames.PetProtectionStunDuration.Value;
-            zdo.Set("BT_RevivalTimestamp", revivalTime);
-
-            // 2. Lebensbalken und Namen aus dem UI entfernen
-            if (EnemyHud.instance != null)
+            // Caching für Komponenten
+            ZDOID zdoid = zdo.m_uid;
+            (ZNetView nview, MonsterAI ai) cache;
+            if (!cachedComponents.TryGetValue(zdoid, out cache) || cache.nview == null)
             {
-                EnemyHud.instance.RemoveCharacterHud(character);
+                cache = (nview: nview, ai: __instance);  // Named Tuple (C# 7.1+)
+                cachedComponents[zdoid] = cache;
             }
 
-            // --- NEU: Zeitstempel für den Wisp-Teleport setzen (2 Sekunden in der Zukunft) ---
-            float wispTeleportTime = (float)ZNet.instance.GetTimeSeconds() + 2f;
-            zdo.Set("BT_WispTeleportTimestamp", wispTeleportTime);
-            zdo.Set("BT_TransformedToWisp", true);
+            // Finde den zugehörigen Wisp und teleporte, falls nötig
+            if (s_wispInstances.TryGetValue(zdo.m_uid, out GameObject wispInstance) && wispInstance != null)
+            {
+                Character wispCharacter = wispInstance.GetComponent<Character>();
+                MonsterAI petAI = cache.ai;  // Aus Cache
+
+                if (wispCharacter != null && petAI != null)
+                {
+                    GameObject followTarget = petAI.GetFollowTarget();
+                    Player player = followTarget?.GetComponent<Player>();
+
+                    if (player != null)
+                    {
+                        BetterTamesPlugin.LogIfDebug("Teleporting wisp to player.", DebugFeature.PetProtection);
+                        DistanceTeleportLogic.ExecuteTeleportBehindPlayer(wispCharacter, followTarget);
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region Transformation Methods
+        public static void ApplyWispTransform(Character character, ZNetView nview, ZDO zdo)
+        {
+            BetterTamesPlugin.LogIfDebug($"Applying wisp transform to {character.m_name}.", DebugFeature.PetProtection);
 
             SetRenderersVisible(character, false);
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_PET_SET_VISIBLE, zdo.m_uid, false);
 
             if (wispPrefab != null)
             {
                 GameObject wispInstance = UnityEngine.Object.Instantiate(wispPrefab, character.transform.position, Quaternion.identity);
-
-                MonsterAI originalPetAI = character.GetComponent<MonsterAI>();
-                GameObject followTarget = originalPetAI.GetFollowTarget();
-
-                Player player = followTarget?.GetComponent<Player>();
-
-                // 3. Wenn wir den Spieler gefunden haben, führe den Teleport aus
-                if (player != null)
-                {
-                    BetterTamesPlugin.LogIfDebug("Teleporting Soul to player.", DebugFeature.PetProtection);
-
-                    // Rufe deine bewährte Methode mit den korrekten Objekten auf
-                    DistanceTeleportLogic.ExecuteTeleportBehindPlayer(character, followTarget);
-                }
                 s_wispInstances[zdo.m_uid] = wispInstance;
+
+                // FIX: Deaktiviere Interactability auf Wisp
+                Tameable wispTameable = wispInstance.GetComponent<Tameable>();
+                if (wispTameable != null)
+                {
+                    wispTameable.enabled = false;  // Deaktiviert Interact
+                    BetterTamesPlugin.LogIfDebug("Disabled Tameable on wisp instance.", DebugFeature.PetProtection);
+                }
+
+                Collider[] wispColliders = wispInstance.GetComponentsInChildren<Collider>();
+                foreach (Collider col in wispColliders)
+                {
+                    col.enabled = false;  // Keine Physik/Interact
+                }
+
+                // Optional: Setze Layer zu "UI" oder "Ignore Raycast" für extra Sicherheit
+                wispInstance.layer = LayerMask.NameToLayer("UI");
             }
         }
 
@@ -214,8 +224,12 @@ namespace BetterTames.PetProtection
                 s_wispInstances.Remove(zdo.m_uid);
             }
 
-            // KORREKTUR 4: Konsistent SetRenderersVisible verwenden
+            // Synchronisiere Wisp-Entfernung an alle Clients
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REMOVE_WISP, zdo.m_uid);
+
+            // Konsistent SetRenderersVisible verwenden
             SetRenderersVisible(character, true);
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_PET_SET_VISIBLE, zdo.m_uid, true);
 
             zdo.Set("BT_TransformedToWisp", false);
             zdo.Set("isRecoveringFromStun", false);
@@ -225,9 +239,11 @@ namespace BetterTames.PetProtection
             float healPercentage = BetterTamesPlugin.ConfigInstance.Tames.PetProtectionHealPercentage.Value;
             float healthToRestore = Mathf.Clamp(maxHealth * (healPercentage / 100f), 1f, maxHealth);
             zdo.Set(ZDOVars.s_health, healthToRestore);
+
+            BetterTamesPlugin.LogIfDebug($"Revived {character.m_name} with {healthToRestore} HP.", DebugFeature.PetProtection);
         }
 
-        private static void SetRenderersVisible(Character character, bool visible)
+        public static void SetRenderersVisible(Character character, bool visible)
         {
             foreach (Collider col in character.GetComponentsInChildren<Collider>())
             {
@@ -239,5 +255,6 @@ namespace BetterTames.PetProtection
                 renderer.enabled = visible;
             }
         }
+        #endregion
     }
 }

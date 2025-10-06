@@ -1,6 +1,7 @@
 ﻿using BetterTames.DistanceTeleport;
 using BetterTames.PetProtection;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -19,15 +20,33 @@ namespace BetterTames.Utils
                 BetterTamesPlugin.LogIfDebug("ERROR: ZRoutedRpc.instance is null – RPC registration skipped!", DebugFeature.Initialization);
                 return;
             }
+
+            // Teleport-Sync (allgemein)
             ZRoutedRpc.instance.Register<string, ZPackage>(BetterTamesPlugin.RPC_TELEPORT_SYNC, RPC_TeleportSync_Client);
+
+            // MercyKill (für ButcherKnife-Bypass)
             BetterTamesPlugin.LogIfDebug($"Attempting to register RPC: {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL}", DebugFeature.Initialization);
             ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, RPC_MercyKill_AllClients);
             BetterTamesPlugin.LogIfDebug($"RPC {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL} registered successfully.", DebugFeature.Initialization);
 
+            // Visibility und Wisp-Handling
+            ZRoutedRpc.instance.Register<ZDOID, bool>(BetterTamesPlugin.RPC_PET_SET_VISIBLE, RPC_SetPetVisible_Client);
+            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REMOVE_WISP, RPC_RemoveWisp_Client);
+
+            // Unfollow (für Max-Pets)
+            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, RPC_RequestUnfollow_Server);
+            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_CONFIRM_UNFOLLOW, RPC_ConfirmUnfollow_Client);
+
+            // FIX: PetProtection-Sync registrieren (für Stun/Revival)
+            ZRoutedRpc.instance.Register<ZDOID, bool>(BetterTamesPlugin.RPC_PET_PROTECTION_SYNC, RPC_PetProtectionSync_Client);
+            BetterTamesPlugin.LogIfDebug($"RPC {BetterTamesPlugin.RPC_PET_PROTECTION_SYNC} registered.", DebugFeature.PetProtection);
+
+            // Server-only: Teleport-Prep/Recreate
             if (ZNet.instance.IsServer())
             {
                 ZRoutedRpc.instance.Register<ZDOID, ZPackage>(BetterTamesPlugin.RPC_PREPARE_PETS_FOR_TELEPORT, RPC_PreparePetsForTeleport_Server);
                 ZRoutedRpc.instance.Register<ZPackage>(BetterTamesPlugin.RPC_RECREATE_PETS_AT_DESTINATION, RPC_RecreatePetsAtDestination_Server);
+                BetterTamesPlugin.LogIfDebug("Server-only RPCs registered.", DebugFeature.TeleportFollow);
             }
         }
 
@@ -109,30 +128,69 @@ namespace BetterTames.Utils
         #endregion
 
         #region Client-Side RPC Handlers
+        private static void RPC_SetPetVisible_Client(long sender, ZDOID petZDOID, bool visible)
+        {
+            BetterTamesPlugin.LogIfDebug("Set Colider and Visible of Tame." + petZDOID, DebugFeature.PetProtection);
+            GameObject obj = ZNetScene.instance.FindInstance(petZDOID);
+            if (obj == null) return;
 
+            ZNetView zview = obj.GetComponent<ZNetView>();
+            if (zview == null || !zview.IsValid()) return;
+
+            Character character = obj.GetComponent<Character>();
+            if (character == null) return;
+
+            foreach (Collider col in character.GetComponentsInChildren<Collider>())
+                col.enabled = visible;
+
+            foreach (Renderer renderer in character.GetComponentsInChildren<Renderer>())
+                renderer.enabled = visible;
+        }
+
+        private static void RPC_RemoveWisp_Client(long sender, ZDOID petZDOID)
+        {
+            if (!PetProtection.PetProtectionPatch.IsTransformedToWisp(petZDOID))
+                return;
+
+            if (PetProtection.PetProtectionPatch.s_wispInstances.TryGetValue(petZDOID, out GameObject wisp))
+            {
+                if (wisp != null)
+                {
+                    UnityEngine.Object.Destroy(wisp);
+                    BetterTamesPlugin.LogIfDebug($"Destroyed Wisp for {petZDOID} on client.", DebugFeature.PetProtection);
+                }
+                PetProtection.PetProtectionPatch.s_wispInstances.Remove(petZDOID);
+            }
+        }
+
+
+        // MercyKill (All-Clients: Setzt Flag server-seitig für Bypass)
         private static void RPC_MercyKill_AllClients(long sender, ZDOID targetZDOID)
         {
-            BetterTamesPlugin.LogIfDebug($"RPC_MercyKill_AllClients triggered for ZDOID: {targetZDOID} from sender: {sender}", DebugFeature.PetProtection);
             ZDO targetZDO = ZDOMan.instance.GetZDO(targetZDOID);
             if (targetZDO == null)
             {
-                BetterTamesPlugin.LogIfDebug($"ZDO for ZDOID {targetZDOID} not found. Cannot process MercyKill.", DebugFeature.PetProtection);
+                BetterTamesPlugin.LogIfDebug($"MercyKill RPC failed: ZDO {targetZDOID} not found.", DebugFeature.PetProtection);
                 return;
             }
 
-            GameObject targetObject = ZNetScene.instance.FindInstance(targetZDOID);
-            if (targetObject == null)
-            {
-                BetterTamesPlugin.LogIfDebug($"GameObject for ZDOID {targetZDOID} not found, but ZDO exists. Setting flag via ZDO.", DebugFeature.PetProtection);
-            }
-            else
-            {
-                BetterTamesPlugin.LogIfDebug($"Found GameObject for ZDOID {targetZDOID}.", DebugFeature.PetProtection);
-            }
-
-            // Setze die Flag direkt über die ZDO, unabhängig vom GameObject
+            // Setze Flag – Server priorisiert (sync't auto zu Clients)
             targetZDO.Set("BT_MercyKill", true);
-            BetterTamesPlugin.LogIfDebug($"BT_MercyKill flag set for ZDOID {targetZDOID} via ZDO. Pet protection bypassed on next damage.", DebugFeature.PetProtection);
+            BetterTamesPlugin.LogIfDebug($"[RPC] MercyKill Flag set for {targetZDOID} by sender {sender}.", DebugFeature.PetProtection);
+
+            // Kein Reset hier – ApplyDamagePrefix resetet es nach Check
+        }
+
+
+        private static IEnumerator ResetMercyFlagAfterFrame(ZDOID targetZDOID)
+        {
+            yield return null;  // Warte 1 Frame
+            ZDO zdo = ZDOMan.instance.GetZDO(targetZDOID);
+            if (zdo != null)
+            {
+                zdo.Set("BT_MercyKill", false);
+                BetterTamesPlugin.LogIfDebug($"MercyKill Flag reset for {targetZDOID}.", DebugFeature.PetProtection);
+            }
         }
 
         private static void RPC_TeleportSync_Client(long sender, string zdoID_str, ZPackage pkg)
@@ -168,6 +226,33 @@ namespace BetterTames.Utils
             }
         }
 
+        // Wird vom Client an den Server geschickt
+        private static void RPC_RequestUnfollow_Server(long sender, ZDOID petZDOID)
+        {
+            if (!ZNet.instance.IsServer()) return;
+
+            GameObject obj = ZNetScene.instance.FindInstance(petZDOID);
+            if (obj == null) return;
+
+            MonsterAI ai = obj.GetComponent<MonsterAI>();
+            if (ai == null) return;
+
+            ai.SetFollowTarget(null);
+            BetterTamesPlugin.LogIfDebug($"[Server] Pet {obj.name} unfollowed by request from peer {sender}", DebugFeature.MakeCommandable);
+
+            // Schicke die Bestätigung zurück an den Client
+            ZRoutedRpc.instance.InvokeRoutedRPC(sender, BetterTamesPlugin.RPC_CONFIRM_UNFOLLOW, petZDOID);
+        }
+
+        // Wird auf dem Client ausgeführt, um seinen lokalen Zustand zu aktualisieren
+        private static void RPC_ConfirmUnfollow_Client(long sender, ZDOID petZDOID)
+        {
+            ZDO zdo = ZDOMan.instance.GetZDO(petZDOID);
+            if (zdo == null) return;
+
+            zdo.Set(ZDOVars.s_follow, ""); // Lokalen Follow-Eintrag leeren
+            BetterTamesPlugin.LogIfDebug($"[Client] Confirmed unfollow for pet {petZDOID}", DebugFeature.MakeCommandable);
+        }
 
         #endregion
 
@@ -176,21 +261,23 @@ namespace BetterTames.Utils
         // TODO: Diese Logik sollte in eine `DistanceTeleportLogic`-Klasse.
         private static List<Vector3> CalculateDistributedSpawnPositions(Vector3 center, Quaternion direction, int count)
         {
-            var positions = new List<Vector3>();
-            float radius = 3f; // Startradius
-            float angleStep = 30f; // Winkel zwischen den Tieren
+            var positions = new List<Vector3>(count);  // Pre-allocate
+            float radius = 3f;
+            float angleStep = 30f;
+
+            // Batch Floor-Find: Zuerst grobe Height holen
+            if (ZoneSystem.instance.FindFloor(center + Vector3.up * 10f, out float baseHeight))
+            {
+                baseHeight += 0.2f;
+            }
+            else baseHeight = center.y;
 
             for (int i = 0; i < count; i++)
             {
                 float angle = (i - (count - 1) / 2f) * angleStep;
-                Vector3 offset = Quaternion.Euler(0, angle, 0) * (direction * Vector3.back);
-                Vector3 spawnPos = center + offset * radius;
-
-                // Finde den Boden für die exakte Position
-                if (ZoneSystem.instance.FindFloor(spawnPos + Vector3.up, out float floorHeight))
-                {
-                    spawnPos.y = floorHeight + 0.2f;
-                }
+                Vector3 offset = Quaternion.Euler(0, angle, 0) * (direction * Vector3.back * radius);
+                Vector3 spawnPos = center + offset;
+                spawnPos.y = baseHeight;  // Nutze gecachte Height statt pro Pet FindFloor
                 positions.Add(spawnPos);
             }
             return positions;
@@ -211,6 +298,40 @@ namespace BetterTames.Utils
             return ZDOID.None;
         }
 
+
         #endregion
+        // FIX: PetProtection-Sync (Client: Stun/Revival syncen)
+        private static void RPC_PetProtectionSync_Client(long sender, ZDOID petZDOID, bool isStunned)
+        {
+            ZDO zdo = ZDOMan.instance.GetZDO(petZDOID);
+            if (zdo == null) return;
+
+            // FIX: Kein GetCharacter – nutze FindInstance + GetComponent
+            ZNetView nview = ZNetScene.instance.FindInstance(zdo);
+            if (nview == null) return;
+
+            Character pet = nview.GetComponent<Character>();
+            if (pet == null) return;
+
+            if (isStunned)
+            {
+                PetProtectionPatch.SetRenderersVisible(pet, false);  // Verstecke Original
+                                                                     // Spawn Wisp lokal, wenn nicht da
+                if (!PetProtectionPatch.s_wispInstances.ContainsKey(petZDOID))
+                {
+                    PetProtectionPatch.ApplyWispTransform(pet, nview, zdo);
+                }
+            }
+            else
+            {
+                PetProtectionPatch.SetRenderersVisible(pet, true);  // Zeige wieder
+                if (PetProtectionPatch.s_wispInstances.TryGetValue(petZDOID, out GameObject wisp) && wisp != null)
+                {
+                    UnityEngine.Object.Destroy(wisp);
+                    PetProtectionPatch.s_wispInstances.Remove(petZDOID);
+                }
+            }
+            BetterTamesPlugin.LogIfDebug($"[RPC] Synced {(isStunned ? "stun" : "revival")} for {pet.m_name} ({petZDOID}).", DebugFeature.PetProtection);
+        }
     }
 }

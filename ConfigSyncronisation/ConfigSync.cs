@@ -45,19 +45,19 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                 // --- MakeCommandable ---
                 MaxFollowingPets = BindAndSync(cfg, SectionMakeCommandable, "Max Following Pets", 5, new ConfigDescription("Maximum number of pets that can follow a player at the same time. -1 to disable.", new AcceptableValueRange<int>(-1, 20)));
 
-                DebugMakeCommandable = BindAndSync(cfg, SectionMakeCommandable, "Debug Logging", false, "Enables debug logging for this feature.");
+                DebugMakeCommandable = BindOnly(cfg, SectionMakeCommandable, "Debug Logging", false, "Enables debug logging for this feature.");
 
                 // --- TeleportFollow ---
                 TeleportFollowEnabled = BindAndSync(cfg, SectionTeleportFollow, "Enable", true, "Enables pets to teleport to the player if they get too far or the player uses a portal/teleports.");
                 TeleportOnDistanceMaxRange = BindAndSync(cfg, SectionTeleportFollow, "Max Distance For AutoTeleport", 64f, new ConfigDescription("Maximum distance a pet can be from its owner before it attempts to teleport (if not in combat).", new AcceptableValueRange<float>(20f, 64f)));
-                DebugTeleportFollow = BindAndSync(cfg, SectionTeleportFollow, "Debug Logging", false, "Enables debug logging for teleport features.");
+                DebugTeleportFollow = BindOnly(cfg, SectionTeleportFollow, "Debug Logging", false, "Enables debug logging for teleport features.");
 
                 // --- PetProtection ---
                 PetProtectionEnabled = BindAndSync(cfg, SectionPetProtection, "Enable", true, "Prevents tamed creatures from dying by knocking them out instead. They recover after a set time.");
                 PetProtectionStunDuration = BindAndSync(cfg, SectionPetProtection, "Stun Duration", 10f, new ConfigDescription("How long the pet stays stunned/downed (seconds).", new AcceptableValueRange<float>(5f, 300f)));
                 PetProtectionHealPercentage = BindAndSync(cfg, SectionPetProtection, "Heal After Stun Pct", 25f, new ConfigDescription("Percentage of max HP the pet recovers after being downed. (0 = 1HP).", new AcceptableValueRange<float>(0f, 100f)));
                 PetProtectionExceptionPrefabs = BindAndSync(cfg, SectionPetProtection, "Exception Prefabs", "SummonedGolem_TW,SummonedSurtling_TW,SummonedSeeker_TW,SummonedImp_TW,Troll_Summoned,Charred_Twitcher_Summoned,Skeleton_Friendly,JC_Skeleton,ArcticWolf_TW", "A comma-separated list of prefab names that should NOT receive pet protection.");
-                DebugPetProtection = BindAndSync(cfg, SectionPetProtection, "Debug Logging", false, "Enables debug logging for this feature.");
+                DebugPetProtection = BindOnly(cfg, SectionPetProtection, "Debug Logging", false, "Enables debug logging for this feature.");
 
                 // --- Taming ---
                 ShowTamingProgressEnabled = BindAndSync(cfg, SectionTaming, "Show Taming Progress", true, "Shows a taming progress percentage above creatures being tamed.");
@@ -83,6 +83,23 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                 BetterTamesPlugin._configSync.AddConfigEntry(entry);
                 return entry;
             }
+
+            /// <summary>
+            /// Erstellt eine Konfigurationseinstellung LOKAL, ohne ServerSync (z.B. für Debug-Optionen).
+            /// </summary>
+            private ConfigEntry<T> BindOnly<T>(ConfigFile cfg, string section, string key, T defaultValue, string description)
+            {
+                return cfg.Bind(section, key, defaultValue, description);
+            }
+
+            /// <summary>
+            /// Overload für lokale Einstellungen mit erweiterter Beschreibung.
+            /// </summary>
+            private ConfigEntry<T> BindOnly<T>(ConfigFile cfg, string section, string key, T defaultValue, ConfigDescription description)
+            {
+                return cfg.Bind(section, key, defaultValue, description);
+            }
+
             #endregion
         }
     }

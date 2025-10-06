@@ -6,12 +6,18 @@ namespace BetterTames.PetProtection
     public static class ButcherKnifePatch
     {
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.VeryHigh)]  // FIX: Läuft vor ApplyDamagePrefix (setzt Flag früh)
         public static bool Prefix(Character __instance, HitData hit)
         {
-            // Debug: Bestätige, dass der Patch ausgeführt wird
-            BetterTamesPlugin.LogIfDebug("ButcherKnifePatch Prefix called for character: " + (__instance != null ? __instance.m_name : "null"), DebugFeature.PetProtection);
+            // Früher Null-Check
+            if (__instance == null)
+            {
+                BetterTamesPlugin.LogIfDebug("ButcherKnifePatch Prefix skipped: __instance is null.", DebugFeature.PetProtection);
+                return true;
+            }
 
-            // Prüfe, ob die Bedingungen für den ButcherKnife-Bypass erfüllt sind
+            BetterTamesPlugin.LogIfDebug("ButcherKnifePatch Prefix called for character: " + __instance.m_name, DebugFeature.PetProtection);
+
             if (CheckButcherKnifeBypass(__instance, hit))
             {
                 ZNetView nview = __instance.GetComponent<ZNetView>();
@@ -20,7 +26,6 @@ namespace BetterTames.PetProtection
                     ZDOID targetZDOID = nview.GetZDO().m_uid;
                     BetterTamesPlugin.LogIfDebug($"Butcher Knife used on {__instance.m_name} (ZDOID: {targetZDOID}). IsOwner: {nview.IsOwner()}", DebugFeature.PetProtection);
 
-                    // Setze die Flag lokal, wenn du der Owner bist
                     if (nview.IsOwner())
                     {
                         BetterTamesPlugin.LogIfDebug($"Owner setting BT_MercyKill flag for {__instance.m_name} locally.", DebugFeature.PetProtection);
@@ -28,14 +33,12 @@ namespace BetterTames.PetProtection
                     }
                     else
                     {
-                        // Sende RPC an alle, wenn ein anderer Client angreift
                         BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to all clients.", DebugFeature.PetProtection);
                         ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, targetZDOID);
                         BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to all for ZDOID: {targetZDOID}.", DebugFeature.PetProtection);
                     }
 
-                    // Lass den Schaden durch, die Flag übernimmt den Bypass
-                    return true;
+                    return true;  // Lass Schaden durch (Flag wirkt in nachfolgendem Prefix)
                 }
                 else
                 {
@@ -43,7 +46,7 @@ namespace BetterTames.PetProtection
                 }
             }
 
-            return true; // Normaler Schadensfluss, wenn kein ButcherKnife
+            return true; // Normaler Fluss
         }
 
         private static bool CheckButcherKnifeBypass(Character character, HitData hit)
