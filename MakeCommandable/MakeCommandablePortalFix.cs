@@ -64,26 +64,21 @@ namespace BetterTames.MakeCommandable
                     Tameable tameable = sorted[i].GetComponent<Tameable>();
                     if (tameable != null)
                     {
-                        ZNetView zview = tameable.GetComponent<ZNetView>();  // Korrekt
-                        if (zview != null && zview.IsValid())
+                        ZNetView zview = tameable.GetComponent<ZNetView>();
+                        if (zview != null && zview.IsValid() && (zview.IsOwner() || ZNet.instance.IsServer()))
                         {
-                            if (zview.IsOwner())
-                            {
-                                tameable.Command(player, true);
-                            }
-                            else
-                            {
-                                long ownerId = zview.GetZDO().GetOwner();
-                                if (ownerId != 0)
-                                {
-                                    ZRoutedRpc.instance.InvokeRoutedRPC(ownerId, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, zview.GetZDO().m_uid);
-                                    BetterTamesPlugin.LogIfDebug($"Requesting owner {ownerId} to unfollow {tameable.name}", DebugFeature.MakeCommandable);
-                                }
-                            }
-                        }
+                            ZDO zdo = zview.GetZDO();
+                            zdo.Set(ZDOVars.s_follow, "");
 
-                        BetterTamesPlugin.LogIfDebug($"{sorted[i].GetHoverName()} bleibt hier zurück.", DebugFeature.MakeCommandable);
+                            MonsterAI ai = sorted[i].GetComponent<MonsterAI>();
+                            if (ai != null) ai.SetFollowTarget(null);
+
+                            BetterTamesPlugin.LogIfDebug($"{sorted[i].GetHoverName()} unfollowed via ZDO.", DebugFeature.MakeCommandable);
+                        }
+                        // Entferne else { RPC-Fallback } – ZDO reicht
                     }
+
+                    BetterTamesPlugin.LogIfDebug($"{sorted[i].GetHoverName()} bleibt hier zurück.", DebugFeature.MakeCommandable);
                 }
             }
         }

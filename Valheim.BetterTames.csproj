@@ -10,9 +10,11 @@
     <RootNamespace>Valheim.BetterTames</RootNamespace>
     <AssemblyName>Valheim.BetterTames</AssemblyName>
     <TargetFrameworkVersion>v4.8.1</TargetFrameworkVersion>
+    <LangVersion>preview</LangVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <Nullable>disable</Nullable>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -81,19 +83,21 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DistanceTeleport\DistanceTeleportLogic.cs" />
+    <Compile Include="DistanceTeleport\PetDistanceChecker.cs" />
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />
     <Compile Include="MakeCommandable\MakeCommandable.cs" />
-    <Compile Include="DistanceTeleport\DistanceTeleportPatch.cs" />
     <Compile Include="MakeCommandable\MakeCommandablePortalFix.cs" />
-    <Compile Include="PetProtection\ButcherKnifePatch.cs" />
     <Compile Include="PetProtection\EnemyHudPatch.cs" />
+    <Compile Include="PetProtection\GameUpdatePatches.cs" />
     <Compile Include="PetProtection\PetProtectionPatch.cs" />
     <Compile Include="PetProtection\StunBehaviorPatches.cs" />
+    <Compile Include="PetProtection\StunnedPetManager.cs" />
     <Compile Include="PetProtection\WispInteractPatch.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Utils\RPCManager.cs" />
+    <Compile Include="Utils\ZDOListenerPatch.cs" />
   </ItemGroup>
   <ItemGroup>
     <Analyzer Include="Assemblys\0Harmony.dll" />
@@ -108,7 +112,6 @@
     <Analyzer Include="Assemblys\UnityEngine.dll" />
     <Analyzer Include="Assemblys\UnityEngine.PhysicsModule.dll" />
     <Analyzer Include="Assemblys\UnityEngine.UI.dll" />
-    <Analyzer Include="Assemblys\winhttp.dll" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assemblys\ServerSync.dll">

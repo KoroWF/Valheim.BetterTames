@@ -1,14 +1,11 @@
 ﻿using HarmonyLib;
+using BetterTames.PetProtection;
 
 namespace BetterTames.PetProtection
 {
     [HarmonyPatch]
     public static class StunBehaviorPatches
     {
-        /// <summary>
-        /// Verhindert, dass die KI eines "ausgeknockten" Tieres ausgeführt wird.
-        /// Stattdessen wird es gezwungen, liegen zu bleiben.
-        /// </summary>
         [HarmonyPatch(typeof(MonsterAI), "UpdateAI")]
         [HarmonyPrefix]
         public static bool PreventAIUpdateWhenStunned(MonsterAI __instance)
@@ -17,29 +14,21 @@ namespace BetterTames.PetProtection
             if (nview == null || !nview.IsValid()) return true;
 
             ZDO zdo = nview.GetZDO();
-            if (zdo == null || !zdo.GetBool("isRecoveringFromStun", false))
+            if (zdo == null || !zdo.GetBool("BT_Stunned", false))
             {
-                return true; // Nicht im Schutzmodus, normale KI ausführen.
+                return true;  // Normale KI
             }
 
-            // Wenn im Schutzmodus:
-            // 1. Sicherstellen, dass das Tier sich nicht bewegt.
+            // Stun: AI stoppen (lokal)
             __instance.StopMoving();
-
-            // 2. Das Tier in die "schlafend"-Animation zwingen.
             Character character = __instance.GetComponent<Character>();
             if (character != null)
             {
                 character.GetZAnim()?.SetBool("sleeping", true);
             }
-
-            // 3. Den Rest der normalen KI-Logik überspringen, um diesen Zustand beizubehalten.
-            return false;
+            return false;  // Skip AI
         }
 
-        /// <summary>
-        /// Verhindert, dass "ausgeknockte" Humanoide einen Angriff starten.
-        /// </summary>
         [HarmonyPatch(typeof(Humanoid), "StartAttack")]
         [HarmonyPrefix]
         public static bool PreventAttackWhenStunned_Humanoid(Humanoid __instance)
@@ -47,10 +36,9 @@ namespace BetterTames.PetProtection
             if (!__instance.IsTamed()) return true;
 
             ZNetView nview = __instance.GetComponent<ZNetView>();
-            if (nview != null && nview.IsValid() && nview.GetZDO().GetBool("isRecoveringFromStun", false))
+            if (nview != null && nview.IsValid() && nview.GetZDO().GetBool("BT_Stunned", false))
             {
-                // Verhindere Angriffe, während das Tier am Boden ist.
-                return false;
+                return false;  // Kein Angriff
             }
 
             return true;

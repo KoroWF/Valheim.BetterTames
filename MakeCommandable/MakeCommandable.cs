@@ -2,7 +2,6 @@
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace BetterTames.MakeCommandable
@@ -22,82 +21,72 @@ namespace BetterTames.MakeCommandable
             if (player == null || player != Player.m_localPlayer) return true;
 
             MonsterAI monsterAI = __instance.GetComponent<MonsterAI>();
+            ZNetView zview = __instance.GetComponent<ZNetView>();
+            if (zview == null || !zview.IsValid()) return true;
+
+            ZDO zdo = zview.GetZDO();
+            string currentFollow = zdo.GetString(ZDOVars.s_follow, "");
+
             int maxPets = BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value;
 
-            bool willFollow = (monsterAI != null && monsterAI.GetFollowTarget() == null);  // Stay → Follow?
-            if (!willFollow)  // Wenn es schon folgt, einfach toggle zu Stay – kein Limit-Check nötig
+            bool isCurrentlyFollowing = !string.IsNullOrEmpty(currentFollow) && currentFollow == player.GetPlayerName();
+            bool willFollow = !isCurrentlyFollowing;
+
+            BetterTamesPlugin.LogIfDebug($"[DEBUG] Pet: {__instance.GetHoverName()}, s_follow: '{currentFollow}', MonsterAI.FollowTarget: {(monsterAI?.GetFollowTarget()?.name ?? "null")}, willFollow: {willFollow}, IsOwner: {zview.IsOwner()}", DebugFeature.MakeCommandable);
+
+            if (!willFollow)
             {
                 __instance.Command(user, true);
-                BetterTamesPlugin.UpdateFollowerCount(player, false);  // Nun -1 Follower
-                BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: Stay (new count: {BetterTamesPlugin.GetFollowerCount(player)})", DebugFeature.MakeCommandable);
+                zdo.Set(ZDOVars.s_follow, "");
+                if (monsterAI != null) monsterAI.SetFollowTarget(null);
+                BetterTamesPlugin.UpdateFollowerCount(player, false);
+                BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: Stay", DebugFeature.MakeCommandable);
                 __result = true;
                 return false;
             }
 
-            // Hier: willFollow == true → Wir wollen +1 Follower
-            // Genauer Count via Scan (wie in Teleport-Patch)
+            // Follow-Check (Limit)
             List<Character> followers = GetAndSortFollowers(player);
-            int currentCount = followers.Count;
-
-            BetterTamesPlugin.LogIfDebug($"Current followers: {currentCount}, willFollow: {willFollow}, max: {maxPets}", DebugFeature.MakeCommandable);
-
-            // Wenn Limit erreicht/unterbrochen, unfollowe den fernsten, um Platz zu machen
-            if (maxPets != -1 && currentCount >= maxPets)
+            if (followers.Count >= maxPets)
             {
-                if (followers.Count > 0)  // Es gibt welche zum Unfolgen
+                // Unfollow fernstes
+                if (followers.Count > 0)
                 {
-                    Character farthest = followers[0];  // Erster ist der fernste (sortiert descending)
-                    Tameable tameable = farthest.GetComponent<Tameable>();
-                    if (tameable != null)
+                    Character farthest = followers[0];
+                    ZNetView farZview = farthest.GetComponent<ZNetView>();
+                    if (farZview != null && farZview.IsValid() && (farZview.IsOwner() || ZNet.instance.IsServer()))
                     {
-                        ZNetView zview = tameable.GetComponent<ZNetView>();
-                        if (zview != null && zview.IsValid())
-                        {
-                            if (zview.IsOwner())
-                            {
-                                tameable.Command(player, true);  // Stay
-                            }
-                            else
-                            {
-                                long ownerId = zview.GetZDO().GetOwner();
-                                if (ownerId != 0)
-                                {
-                                    ZRoutedRpc.instance.InvokeRoutedRPC(ownerId, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, zview.GetZDO().m_uid);
-                                    BetterTamesPlugin.LogIfDebug($"Requesting owner {ownerId} to unfollow {tameable.name}", DebugFeature.MakeCommandable);
-                                }
-                            }
-                            BetterTamesPlugin.LogIfDebug($"{farthest.GetHoverName()} bleibt hier zurück (Platz für neues Tier gemacht).", DebugFeature.MakeCommandable);
-                            currentCount--;  // Nun -1
-                        }
+                        ZDO farZdo = farZview.GetZDO();
+                        farZdo.Set(ZDOVars.s_follow, "");
+                        MonsterAI farAI = farthest.GetComponent<MonsterAI>();
+                        if (farAI != null) farAI.SetFollowTarget(null);
+                        BetterTamesPlugin.UpdateFollowerCount(player, false);
+                        BetterTamesPlugin.LogIfDebug($"Unfollowed farthest {farthest.GetHoverName()} to make room.", DebugFeature.MakeCommandable);
                     }
                 }
                 else
                 {
-                    // Fallback: Wenn kein Follower gefunden, aber Count war >= max → Cache-Fehler? Blocken mit Message
-                    user.Message(MessageHud.MessageType.Center, $"Zu viele Begleiter ({currentCount}/{maxPets}). Befehle den fernsten zuerst 'Stay'.");
+                    user.Message(MessageHud.MessageType.Center, $"Follower-Scan fehlgeschlagen. Befiehl fernstes Pet manuell 'Stay'.");
                     __result = false;
                     return false;
                 }
             }
 
-            // Command ausführen: Follow
-            bool wasFollowing = (monsterAI != null && monsterAI.GetFollowTarget() != null);
-            __instance.Command(user, true);  // Führt Follow aus
+            __instance.Command(user, true);
+            zdo.Set(ZDOVars.s_follow, player.GetPlayerName());
+            if (monsterAI != null) monsterAI.SetFollowTarget(player.gameObject);
 
-            // Update Liste nach Command (+1)
             BetterTamesPlugin.UpdateFollowerCount(player, true);
 
-            string command = "Follow";
-            BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: {command} (new count: {BetterTamesPlugin.GetFollowerCount(player)})", DebugFeature.MakeCommandable);
+            BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: Follow (new count: {BetterTamesPlugin.GetFollowerCount(player)})", DebugFeature.MakeCommandable);
 
             __result = true;
             return false;
         }
 
-        // Helper: Holt Followers, filtert und sortiert nach Distanz descending (fernste zuerst)
         private static List<Character> GetAndSortFollowers(Player player)
         {
-            float checkRadius = 32f;
+            float checkRadius = 64f;
             List<Character> followers = new List<Character>(16);
             Collider[] cols = Physics.OverlapSphere(player.transform.position, checkRadius);
             foreach (Collider col in cols)
@@ -110,12 +99,11 @@ namespace BetterTames.MakeCommandable
                 }
             }
 
-            // Sortiere descending nach Distanz (C# 7.3-kompatibel, ohne LINQ)
             Character[] sorted = new Character[followers.Count];
             followers.CopyTo(sorted);
             Array.Sort(sorted, Comparer<Character>.Create((a, b) =>
                 Vector3.Distance(player.transform.position, b.transform.position)
-                .CompareTo(Vector3.Distance(player.transform.position, a.transform.position))));  // Fernste zuerst
+                .CompareTo(Vector3.Distance(player.transform.position, a.transform.position))));
 
             followers.Clear();
             followers.AddRange(sorted);
