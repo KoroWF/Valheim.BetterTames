@@ -1,4 +1,5 @@
 ﻿using BetterTames.DistanceTeleport;
+using BetterTames.MakeCommandable;
 using BetterTames.PetProtection;
 using System;
 using System.Collections;
@@ -35,7 +36,10 @@ namespace BetterTames.Utils
 
             // Unfollow (für Max-Pets)
             ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, RPC_RequestUnfollow_Server);
-            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_CONFIRM_UNFOLLOW, RPC_ConfirmUnfollow_Client);
+
+            // Enforce Follower Limit (neuer RPC für Hardcap-B Durchsetzung)
+            ZRoutedRpc.instance.Register<ZDOID, ZPackage>(BetterTamesPlugin.RPC_REQUEST_ENFORCE_FOLLOWER_LIMIT, RPC_RequestEnforceFollowerLimit_Server);
+
 
             // FIX: PetProtection-Sync registrieren (für Stun/Revival)
             ZRoutedRpc.instance.Register<ZDOID, bool>(BetterTamesPlugin.RPC_PET_PROTECTION_SYNC, RPC_PetProtectionSync_Client);
@@ -125,6 +129,55 @@ namespace BetterTames.Utils
             }
             serverPetTeleportCache.Remove(playerZDOID);
         }
+
+        // Durchsets den harten Limit für Followers / Pets
+        private static void RPC_RequestEnforceFollowerLimit_Server(long sender, ZDOID playerZDO, ZPackage pkg)
+        {
+            int count = pkg.ReadInt();
+            List<ZDOID> excess = new List<ZDOID>(count);
+            for (int i = 0; i < count; i++) excess.Add(pkg.ReadZDOID());
+
+            BetterTamesPlugin.LogIfDebug($"[SERVER] Enforcing limit for player {playerZDO}: {count} excess pets.", DebugFeature.MakeCommandable);
+
+            foreach (ZDOID petID in excess)
+            {
+                ZDO petZDO = ZDOMan.instance.GetZDO(petID);
+                if (petZDO == null) continue;
+
+                petZDO.Set(ZDOVars.s_follow, "");  // Global clear (sync auto zu allen Clients)
+
+                // Action triggern
+                ZNetView petView = ZNetScene.instance.FindInstance(petZDO);  // FIX: petID (ZDOID), nicht petZDO
+                if (petView == null)
+                {
+                    BetterTamesPlugin.LogIfDebug($"[SERVER] Pet instance not found for {petID} – skipping AI update.", DebugFeature.MakeCommandable);
+                    continue;
+                }
+
+                if (petView.IsOwner())  // Vereinfacht: Server owned? (IsOwner() ist true für Server)
+                {
+                    MonsterAI ai = petView.GetComponent<MonsterAI>();
+                    if (ai != null)
+                    {
+                        ai.SetFollowTarget(null);  // Lokal unfollow
+                        BetterTamesPlugin.LogIfDebug($"[SERVER] Locally unfollowed own pet {petID}.", DebugFeature.MakeCommandable);
+                    }
+                }
+                else
+                {
+                    long owner = petZDO.GetOwner();
+                    if (owner != 0)
+                    {
+                        ZRoutedRpc.instance.InvokeRoutedRPC(owner, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, petID);  // RPC an remote Owner
+                        BetterTamesPlugin.LogIfDebug($"[SERVER] RPC unfollow sent to owner {owner} for pet {petID}.", DebugFeature.MakeCommandable);
+                    }
+                    else
+                    {
+                        BetterTamesPlugin.LogIfDebug($"[SERVER] No owner found for pet {petID} – ZDO cleared anyway.", DebugFeature.MakeCommandable);
+                    }
+                }
+            }
+        }
         #endregion
 
         #region Client-Side RPC Handlers
@@ -181,18 +234,6 @@ namespace BetterTames.Utils
             // Kein Reset hier – ApplyDamagePrefix resetet es nach Check
         }
 
-
-        private static IEnumerator ResetMercyFlagAfterFrame(ZDOID targetZDOID)
-        {
-            yield return null;  // Warte 1 Frame
-            ZDO zdo = ZDOMan.instance.GetZDO(targetZDOID);
-            if (zdo != null)
-            {
-                zdo.Set("BT_MercyKill", false);
-                BetterTamesPlugin.LogIfDebug($"MercyKill Flag reset for {targetZDOID}.", DebugFeature.PetProtection);
-            }
-        }
-
         private static void RPC_TeleportSync_Client(long sender, string zdoID_str, ZPackage pkg)
         {
             try
@@ -227,10 +268,8 @@ namespace BetterTames.Utils
         }
 
         // Wird vom Client an den Server geschickt
-        private static void RPC_RequestUnfollow_Server(long sender, ZDOID petZDOID)
+        private static void RPC_RequestUnfollow_Server(long senderPeerID, ZDOID petZDOID)
         {
-            if (!ZNet.instance.IsServer()) return;
-
             GameObject obj = ZNetScene.instance.FindInstance(petZDOID);
             if (obj == null) return;
 
@@ -238,20 +277,7 @@ namespace BetterTames.Utils
             if (ai == null) return;
 
             ai.SetFollowTarget(null);
-            BetterTamesPlugin.LogIfDebug($"[Server] Pet {obj.name} unfollowed by request from peer {sender}", DebugFeature.MakeCommandable);
-
-            // Schicke die Bestätigung zurück an den Client
-            ZRoutedRpc.instance.InvokeRoutedRPC(sender, BetterTamesPlugin.RPC_CONFIRM_UNFOLLOW, petZDOID);
-        }
-
-        // Wird auf dem Client ausgeführt, um seinen lokalen Zustand zu aktualisieren
-        private static void RPC_ConfirmUnfollow_Client(long sender, ZDOID petZDOID)
-        {
-            ZDO zdo = ZDOMan.instance.GetZDO(petZDOID);
-            if (zdo == null) return;
-
-            zdo.Set(ZDOVars.s_follow, ""); // Lokalen Follow-Eintrag leeren
-            BetterTamesPlugin.LogIfDebug($"[Client] Confirmed unfollow for pet {petZDOID}", DebugFeature.MakeCommandable);
+            BetterTamesPlugin.LogIfDebug($"[Unfollow] Pet {obj.name} unfollowed by request from peer {senderPeerID}", DebugFeature.MakeCommandable);
         }
 
         #endregion

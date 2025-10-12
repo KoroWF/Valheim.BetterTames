@@ -53,6 +53,8 @@ namespace BetterTames
             if (_localPlayerReadyCalled) return;
             if (Player.m_localPlayer == null) return;
 
+            var harmony = new Harmony("BetterTames");
+
             BetterTamesPlugin.LogIfDebug($"Player.SetLocalPlayer postfix triggered for {Player.m_localPlayer.GetPlayerName()}. Calling OnLocalPlayerReady...", DebugFeature.Initialization);
             try
             {

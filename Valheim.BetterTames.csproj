@@ -13,6 +13,7 @@
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -80,6 +81,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DistanceTeleport\DistanceTeleportChecker.cs" />
     <Compile Include="DistanceTeleport\DistanceTeleportLogic.cs" />
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />

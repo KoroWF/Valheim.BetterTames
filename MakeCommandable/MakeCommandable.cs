@@ -1,6 +1,7 @@
 ﻿using BetterTames;
 using HarmonyLib;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -25,101 +26,116 @@ namespace BetterTames.MakeCommandable
             int maxPets = BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value;
 
             bool willFollow = (monsterAI != null && monsterAI.GetFollowTarget() == null);  // Stay → Follow?
+
+            if (maxPets == 0) return true;  // Keine Begleiter erlaubt, Original-Logik verwenden
+
             if (!willFollow)  // Wenn es schon folgt, einfach toggle zu Stay – kein Limit-Check nötig
             {
                 __instance.Command(user, true);
-                BetterTamesPlugin.UpdateFollowerCount(player, false);  // Nun -1 Follower
-                BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: Stay (new count: {BetterTamesPlugin.GetFollowerCount(player)})", DebugFeature.MakeCommandable);
                 __result = true;
                 return false;
             }
 
-            // Hier: willFollow == true → Wir wollen +1 Follower
-            // Genauer Count via Scan (wie in Teleport-Patch)
-            List<Character> followers = GetAndSortFollowers(player);
-            int currentCount = followers.Count;
+            // Command ausführen: Follow (immer erlauben, dann enforcen falls nötig)
+            __instance.Command(user, true);
 
-            BetterTamesPlugin.LogIfDebug($"Current followers: {currentCount}, willFollow: {willFollow}, max: {maxPets}", DebugFeature.MakeCommandable);
-
-            // Wenn Limit erreicht/unterbrochen, unfollowe den fernsten, um Platz zu machen
-            if (maxPets != -1 && currentCount >= maxPets)
-            {
-                if (followers.Count > 0)  // Es gibt welche zum Unfolgen
-                {
-                    Character farthest = followers[0];  // Erster ist der fernste (sortiert descending)
-                    Tameable tameable = farthest.GetComponent<Tameable>();
-                    if (tameable != null)
-                    {
-                        ZNetView zview = tameable.GetComponent<ZNetView>();
-                        if (zview != null && zview.IsValid())
-                        {
-                            if (zview.IsOwner())
-                            {
-                                tameable.Command(player, true);  // Stay
-                            }
-                            else
-                            {
-                                long ownerId = zview.GetZDO().GetOwner();
-                                if (ownerId != 0)
-                                {
-                                    ZRoutedRpc.instance.InvokeRoutedRPC(ownerId, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, zview.GetZDO().m_uid);
-                                    BetterTamesPlugin.LogIfDebug($"Requesting owner {ownerId} to unfollow {tameable.name}", DebugFeature.MakeCommandable);
-                                }
-                            }
-                            BetterTamesPlugin.LogIfDebug($"{farthest.GetHoverName()} bleibt hier zurück (Platz für neues Tier gemacht).", DebugFeature.MakeCommandable);
-                            currentCount--;  // Nun -1
-                        }
-                    }
-                }
-                else
-                {
-                    // Fallback: Wenn kein Follower gefunden, aber Count war >= max → Cache-Fehler? Blocken mit Message
-                    user.Message(MessageHud.MessageType.Center, $"Zu viele Begleiter ({currentCount}/{maxPets}). Befehle den fernsten zuerst 'Stay'.");
-                    __result = false;
-                    return false;
-                }
-            }
-
-            // Command ausführen: Follow
-            bool wasFollowing = (monsterAI != null && monsterAI.GetFollowTarget() != null);
-            __instance.Command(user, true);  // Führt Follow aus
-
-            // Update Liste nach Command (+1)
-            BetterTamesPlugin.UpdateFollowerCount(player, true);
-
-            string command = "Follow";
-            BetterTamesPlugin.LogIfDebug($"Command issued to {__instance.GetHoverName()}: {command} (new count: {BetterTamesPlugin.GetFollowerCount(player)})", DebugFeature.MakeCommandable);
+            BetterTamesPlugin.Instance.StartCoroutine(DelayedEnforce(player, 0.2f));  // Neuer Call
 
             __result = true;
             return false;
+
         }
 
-        // Helper: Holt Followers, filtert und sortiert nach Distanz descending (fernste zuerst)
-        private static List<Character> GetAndSortFollowers(Player player)
+        public static void EnforceFollowerLimitLocal(Player player)
         {
-            float checkRadius = 32f;
-            List<Character> followers = new List<Character>(16);
-            Collider[] cols = Physics.OverlapSphere(player.transform.position, checkRadius);
-            foreach (Collider col in cols)
+            int maxPets = BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value;
+            if (maxPets == -1) return;
+
+            Vector3 playerPos = player.transform.position;
+            string playerName = player.GetPlayerName();
+
+            var followers = GetAndSortFollowers(player);
+
+            if (followers.Count <= maxPets) return;
+
+            int toUnfollow = followers.Count - maxPets;
+
+
+            if (toUnfollow > 0)
             {
-                Character c = col.GetComponent<Character>();
-                ZNetView zview = c?.GetComponent<ZNetView>();
-                if (c != null && c.IsTamed() && zview != null && zview.GetZDO().GetString(ZDOVars.s_follow, "") == player.GetPlayerName())
-                {
-                    followers.Add(c);
-                }
+                player.Message(MessageHud.MessageType.Center, $"Max. nur '{followers.Count}/{maxPets}' erlaubt. Auto entfolgen vom weit entferntesten Tame.");
             }
 
-            // Sortiere descending nach Distanz (C# 7.3-kompatibel, ohne LINQ)
-            Character[] sorted = new Character[followers.Count];
-            followers.CopyTo(sorted);
-            Array.Sort(sorted, Comparer<Character>.Create((a, b) =>
-                Vector3.Distance(player.transform.position, b.transform.position)
-                .CompareTo(Vector3.Distance(player.transform.position, a.transform.position))));  // Fernste zuerst
+            foreach (var far in followers.Take(toUnfollow))
+            {
+                if (far == null) continue;
 
-            followers.Clear();
-            followers.AddRange(sorted);
-            return followers;
+                var ai = far.GetComponent<MonsterAI>();
+                if (ai == null) continue;
+
+                ai.SetFollowTarget(null);
+
+                var zview = far.GetComponent<ZNetView>();
+                if (zview != null)
+                {
+                    var zdo = zview.GetZDO();
+                    if (zdo != null) zdo.Set(ZDOVars.s_follow, "");
+                }
+
+                BetterTamesPlugin.LogIfDebug($"{far.GetHoverName()} set to Stay locally to enforce limit for {playerName}.", DebugFeature.MakeCommandable);
+            }
+
+
+            // Collect the ZDOIDs of all pets to unfollow (the furthest `toUnfollow` pets).
+            List<ZDOID> excessZDOs = followers
+                .Take(toUnfollow)
+                .Select(f => f.GetComponent<ZNetView>().GetZDO().m_uid)
+                .ToList();
+
+
+            if (!ZNet.instance.IsServer())
+            {
+                var playerView = player.GetComponent<ZNetView>();
+                ZPackage pkg = new ZPackage();
+                pkg.Write(excessZDOs.Count);
+                foreach (var id in excessZDOs) pkg.Write(id);
+
+                // Send RPC so server receives (server will process the package)
+                ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_ENFORCE_FOLLOWER_LIMIT, playerView.GetZDO().m_uid, pkg);
+
+                BetterTamesPlugin.LogIfDebug($"[CLIENT] RPC sent to server for enforce: {excessZDOs.Count} excess pets.", DebugFeature.MakeCommandable);
+            }
+        }
+        private static IEnumerator DelayedEnforce(Player player, float delay)
+        {
+            yield return new WaitForSeconds(delay);  // Warte ZDO-Sync
+
+            // Optional: Local unfollow für Instant-Feedback (wie bisher)
+            EnforceFollowerLimitLocal(player);  // Das triggert Scan + RPC
+
+            BetterTamesPlugin.LogIfDebug($"[DELAYED] Enforced after {delay}s for {player.GetPlayerName()}", DebugFeature.MakeCommandable);
+        }
+
+        private static List<Character> GetAndSortFollowers(Player player)
+        {
+            int maxPets = BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value;
+            if (maxPets == -1) return new List<Character>();  // Early out
+
+            Vector3 playerPos = player.transform.position;
+            string playerName = player.GetPlayerName();
+            float checkRadius = 64f;
+
+            return Physics.OverlapSphere(playerPos, checkRadius)
+                .Select(col => col.GetComponent<Character>())
+                .Where(c => c != null && c.IsTamed())
+                .Select(c => (Character: c, ZView: c.GetComponent<ZNetView>(), AI: c.GetComponent<MonsterAI>()))
+                .Where(t => t.ZView != null && (
+                    t.ZView.GetZDO().GetString(ZDOVars.s_follow, "") == playerName
+                    || (t.AI != null && t.AI.GetFollowTarget() == player.gameObject)
+                ))
+                .OrderByDescending(t => Vector3.Distance(playerPos, t.Character.transform.position))
+                .Select(t => t.Character)
+                .ToList();
         }
     }
 }

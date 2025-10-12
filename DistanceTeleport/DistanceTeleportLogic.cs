@@ -8,7 +8,8 @@ namespace BetterTames
     // Token: 0x0200000A RID: 10
     public static class DistanceTeleportLogic
     {
-        private static readonly int groundLayerMask = LayerMask.GetMask("Default", "static_solid", "Default_small", "piece", "terrain", "blocker", "vehicle");
+        public static readonly int groundLayerMask = LayerMask.GetMask(
+            "Default", "static_solid", "Default_small", "piece", "terrain", "blocker", "vehicle");
 
         /// <summary>
         /// Dies ist die exakte Teleport-Logik aus deinem alten Patch, jetzt als wiederverwendbare Methode.
@@ -71,8 +72,8 @@ namespace BetterTames
             Vector3 positionWithSideOffset = rightVec * sideOffset;
             Vector3 targetPosition = playerPosition + positionBehind + positionWithSideOffset;
 
-            // Bodensuche per Raycast, um die korrekte Y-Position zu finden
-            if (Physics.Raycast(targetPosition + Vector3.up * 5f, Vector3.down, out RaycastHit hitInfo, 10f, DistanceTeleportPatch.groundLayerMask))
+            // Boden-Höhenanpassung
+            if (Physics.Raycast(targetPosition + Vector3.up * 5f, Vector3.down, out RaycastHit hitInfo, 10f, groundLayerMask))
             {
                 targetPosition.y = hitInfo.point.y + 1f;
             }
@@ -196,7 +197,7 @@ namespace BetterTames
                 if (!component2.isKinematic)
                 {
                     BetterTamesPlugin.LogIfDebug(prefabName + " ist nicht kinematisch, Velocity wird zurückgesetzt.", DebugFeature.TeleportFollow);
-                    component2.velocity = Vector3.zero;
+                    component2.linearVelocity = Vector3.zero;
                     component2.angularVelocity = Vector3.zero;
                 }
                 else
