@@ -60,7 +60,7 @@ namespace BetterTames.MakeCommandable
 
                     if (currentFollowerCount >= maxPets)
                     {
-                        user.Message(MessageHud.MessageType.Center, "Zu viele Begleiter in deiner Nähe folgen dir bereits.");
+                        user.Message(MessageHud.MessageType.Center, "Zu viele Begleiter in deiner Nähe folgen dir bereits. Maximal erlaubt: "+ maxPets);
                         __result = true;
                         return false;
                     }

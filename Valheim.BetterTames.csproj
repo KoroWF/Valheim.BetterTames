@@ -13,6 +13,7 @@
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -80,17 +81,18 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DistanceTeleport\DistanceTeleportCheck.cs" />
     <Compile Include="DistanceTeleport\DistanceTeleportLogic.cs" />
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />
     <Compile Include="MakeCommandable\MakeCommandable.cs" />
-    <Compile Include="DistanceTeleport\DistanceTeleportPatch.cs" />
     <Compile Include="PetProtection\ButcherKnifePatch.cs" />
     <Compile Include="PetProtection\EnemyHudPatch.cs" />
     <Compile Include="PetProtection\PetProtectionPatch.cs" />
     <Compile Include="PetProtection\StunBehaviorPatches.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utils\RPCHelper.cs" />
     <Compile Include="Utils\RPCManager.cs" />
   </ItemGroup>
   <ItemGroup>

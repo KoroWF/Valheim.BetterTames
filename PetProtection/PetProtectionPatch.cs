@@ -76,22 +76,86 @@ namespace BetterTames.PetProtection
         public static bool ApplyDamagePrefix(Character __instance, HitData hit)
         {
             ZNetView nview = __instance.GetComponent<ZNetView>();
-            ZDO zdo = nview.GetZDO();
-            if (nview != null && nview.IsValid())
-            {
+            // Defensive check: nview muss gültig sein, bevor wir GetZDO aufrufen.
+            if (nview == null || !nview.IsValid())
+                return true;
 
-                if (zdo.GetBool("BT_MercyKill", false))
+            ZDO zdo = nview.GetZDO();
+            // --- NEU: Butcherknife-Bypass für Server-Owner --- Umgehe die rpclösung unten
+            try
+            {
+                if (ZNet.instance != null && nview.IsOwner())
                 {
-                    BetterTamesPlugin.LogIfDebug($"{__instance.m_name} marked for MercyKill (ZDOID: {zdo.m_uid}). Bypassing pet protection. Initial Health: {__instance.GetHealth()}, Hit Damage: {hit.GetTotalDamage()}", DebugFeature.PetProtection);
-                    zdo.Set("BT_MercyKill", false); // Flag zurücksetzen
-                    return true; // Lass den Schaden durch, unabhängig vom Owner
+                    Character attacker = hit.GetAttacker();
+                    if (attacker != null && attacker.IsPlayer())
+                    {
+                        Player player = (Player)attacker;
+                        var weapon = player.GetCurrentWeapon();
+                        if (weapon != null && weapon.m_dropPrefab != null &&
+                            string.Equals(weapon.m_dropPrefab.name, "KnifeButcher", StringComparison.OrdinalIgnoreCase))
+                        {
+                            BetterTamesPlugin.LogIfDebug($"Zonehost Bypass for butcherknife hit on {__instance.m_name}. Bypassing PetProtection and allowing damage.", DebugFeature.PetProtection);
+                            return true; // Schaden passieren lassen -> mögliches Töten
+                        }
+                    }
                 }
+                else
+                {
+                    BetterTamesPlugin.LogIfDebug("Not a server-owner or Zonehost butcherknife hit, proceeding with normal checks.", DebugFeature.PetProtection);
+                    if (zdo?.GetBool("BT_MercyKill", false) ?? false)
+                    {
+                        BetterTamesPlugin.LogIfDebug($"{__instance.m_name} marked for MercyKill (ZDOID: {zdo.m_uid}). Bypassing pet protection. Initial Health: {__instance.GetHealth()}, Hit Damage: {hit.GetTotalDamage()}", DebugFeature.PetProtection);
+                        zdo.Set("BT_MercyKill", false); // Flag zurücksetzen
+                        return true; // Lass den Schaden durch, unabhängig vom Owner
+                    }
+
+
+                }
+            }
+            catch (Exception ex)
+            {
+                BetterTamesPlugin.LogIfDebug($"Exception in server-bypass butcherknife check: {ex}", DebugFeature.PetProtection);
             }
 
             if (!BetterTamesPlugin.ConfigInstance.Tames.PetProtectionEnabled.Value || !ShouldApplyPetProtection(__instance))
                 return true;
 
-            if (nview == null || !nview.IsValid()) return true;
+            // Wenn wir nicht der Owner des ZNetView sind, handle specially:
+            if (!nview.IsOwner())
+            {
+                // Wenn der Treffer tödlich ist und vom ButcherKnife stammt, sende MercyKill-Request an Zonehost
+                if (__instance.GetHealth() <= hit.GetTotalDamage())
+                {
+                    try
+                    {
+                        Character attacker = hit.GetAttacker();
+                        if (attacker != null && attacker.IsPlayer())
+                        {
+                            Player player = (Player)attacker;
+                            var weapon = player.GetCurrentWeapon();
+                            if (weapon != null && weapon.m_dropPrefab != null &&
+                                string.Equals(weapon.m_dropPrefab.name, "KnifeButcher", StringComparison.OrdinalIgnoreCase))
+                            {
+                                BetterTamesPlugin.LogIfDebug($"Non-owner detected lethal butcherknife hit on {__instance.m_name}. Sending MercyKill request to server for ZDOID: {zdo.m_uid}", DebugFeature.PetProtection);
+
+                                // Sende die Anfrage an den Zonehost / Server; dieser broadcastet dann die Notify-RPC,
+                                // und der Owner-Client führt das tatsächliche Kill() aus beim Empfang.
+                                ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { zdo.m_uid });
+
+                                // Verhindere lokalen Schadensdurchlauf — Owner wird die autoritative Kill-Aktion ausführen.
+                                return false;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        BetterTamesPlugin.LogIfDebug($"Exception while sending MercyKill request from non-owner: {ex}", DebugFeature.PetProtection);
+                    }
+                }
+
+                // Nicht tödlich oder keine ButcherKnife: lasse normalen Schaden durch (clientside)
+                return true;
+            }
 
             if (zdo.GetBool("isRecoveringFromStun", false))
                 return false;
@@ -100,10 +164,7 @@ namespace BetterTames.PetProtection
                 return true;
 
             // Nur der Owner führt die Wisp-Transformation aus
-            if (nview.IsOwner())
-            {
-                ApplyWispTransform(__instance, nview, zdo);
-            }
+            ApplyWispTransform(__instance, nview, zdo);
 
             return false;
         }
@@ -164,7 +225,7 @@ namespace BetterTames.PetProtection
             zdo.Set("isRecoveringFromStun", true);
             zdo.Set(ZDOVars.s_health, 1f);
 
-            float revivalTime = (float)ZNet.instance.GetTimeSeconds() + BetterTamesPlugin.ConfigInstance.Tames.PetProtectionStunDuration.Value;
+            float revivalTime = (float)ZNet.instance.GetTimeSeconds() + (float)BetterTamesPlugin.ConfigInstance.Tames.PetProtectionStunDuration.Value;
             zdo.Set("BT_RevivalTimestamp", revivalTime);
 
             // 2. Lebensbalken und Namen aus dem UI entfernen
@@ -183,6 +244,40 @@ namespace BetterTames.PetProtection
             if (wispPrefab != null)
             {
                 GameObject wispInstance = UnityEngine.Object.Instantiate(wispPrefab, character.transform.position, Quaternion.identity);
+
+                // Disable colliders on the wisp so it doesn't block physics or trigger hits
+                try
+                {
+                    var colliders = wispInstance.GetComponentsInChildren<Collider>(true);
+                    int disabledCount = 0;
+                    foreach (var col in colliders)
+                    {
+                        if (col != null && col.enabled)
+                        {
+                            col.enabled = false;
+                            disabledCount++;
+                        }
+                    }
+
+                    // Also make any rigidbodies kinematic and disable collision detection if present
+                    var rigidbodies = wispInstance.GetComponentsInChildren<Rigidbody>(true);
+                    foreach (var rb in rigidbodies)
+                    {
+                        if (rb != null)
+                        {
+                            rb.isKinematic = true;
+#if UNITY_2019_1_OR_NEWER
+                            rb.detectCollisions = false;
+#endif
+                        }
+                    }
+
+                    BetterTamesPlugin.LogIfDebug($"Wisp instance created. Disabled {disabledCount} colliders on wisp.", DebugFeature.PetProtection);
+                }
+                catch (Exception ex)
+                {
+                    BetterTamesPlugin.LogIfDebug($"Exception while disabling colliders on wisp: {ex}", DebugFeature.PetProtection);
+                }
 
                 MonsterAI originalPetAI = character.GetComponent<MonsterAI>();
                 GameObject followTarget = originalPetAI.GetFollowTarget();
@@ -222,7 +317,7 @@ namespace BetterTames.PetProtection
             zdo.Set("BT_RevivalTimestamp", 0f);
 
             float maxHealth = character.GetMaxHealth();
-            float healPercentage = BetterTamesPlugin.ConfigInstance.Tames.PetProtectionHealPercentage.Value;
+            float healPercentage = (float)BetterTamesPlugin.ConfigInstance.Tames.PetProtectionHealPercentage.Value;
             float healthToRestore = Mathf.Clamp(maxHealth * (healPercentage / 100f), 1f, maxHealth);
             zdo.Set(ZDOVars.s_health, healthToRestore);
         }

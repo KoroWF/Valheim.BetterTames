@@ -14,104 +14,20 @@ namespace BetterTames.Utils
         public static void RegisterRPCs()
         {
             BetterTamesPlugin.LogIfDebug("Registering RPCs...", DebugFeature.Initialization);
-            if (ZRoutedRpc.instance == null)
-            {
-                BetterTamesPlugin.LogIfDebug("ERROR: ZRoutedRpc.instance is null – RPC registration skipped!", DebugFeature.Initialization);
-                return;
-            }
-            ZRoutedRpc.instance.Register<string, ZPackage>(BetterTamesPlugin.RPC_TELEPORT_SYNC, RPC_TeleportSync_Client);
-            BetterTamesPlugin.LogIfDebug($"Attempting to register RPC: {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL}", DebugFeature.Initialization);
-            ZRoutedRpc.instance.Register<ZDOID>(BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, RPC_MercyKill_AllClients);
-            BetterTamesPlugin.LogIfDebug($"RPC {BetterTamesPlugin.RPC_REQUEST_MERCY_KILL} registered successfully.", DebugFeature.Initialization);
 
-            if (ZNet.instance.IsServer())
-            {
-                ZRoutedRpc.instance.Register<ZDOID, ZPackage>(BetterTamesPlugin.RPC_PREPARE_PETS_FOR_TELEPORT, RPC_PreparePetsForTeleport_Server);
-                ZRoutedRpc.instance.Register<ZPackage>(BetterTamesPlugin.RPC_RECREATE_PETS_AT_DESTINATION, RPC_RecreatePetsAtDestination_Server);
-            }
+            // Use RPCHelper which encapsulates readiness and server/client checks.
+            RPCHelper.RegisterClient<ZDOID>(BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, RPC_RequestMercyKill_Server);
+
+            RPCHelper.RegisterClient<string>(BetterTamesPlugin.RPC_NOTIFY_MERCY_KILL, RPC_NotifyMercyKill_Client);
+            RPCHelper.RegisterClient<string, ZPackage>(BetterTamesPlugin.RPC_TELEPORT_SYNC, RPC_TeleportSync_Client);
+
+            // evtl. weitere client sync handlers hier (use RPCHelper.RegisterClient...)
         }
 
-        #region Server-Side RPC Handlers
-
-        private static void RPC_PreparePetsForTeleport_Server(long senderPeerID, ZDOID teleportingPlayerZDOID, ZPackage pkg)
+        private static void RPC_RequestMercyKill_Server(long sender, ZDOID targetZDOID)
         {
-            if (!ZNet.instance.IsServer()) return;
+            if(ZNet.instance == null || ZNet.instance.IsServer()) return;
 
-            int petCount = pkg.ReadInt();
-            List<ZDOID> clientPetZDOs = new List<ZDOID>();
-            for (int i = 0; i < petCount; i++)
-            {
-                clientPetZDOs.Add(pkg.ReadZDOID());
-            }
-
-            BetterTamesPlugin.LogIfDebug($"SERVER: Received {petCount} pet ZDOIDs from player {teleportingPlayerZDOID} for teleport prep.", DebugFeature.TeleportFollow);
-
-            List<ZDOID> preparedZDOs = new List<ZDOID>();
-            foreach (ZDOID petZDOID in clientPetZDOs)
-            {
-                ZDO zdo = ZDOMan.instance.GetZDO(petZDOID);
-                if (zdo != null && zdo.IsValid())
-                {
-                    // Temporär Haustier-Instanz zerstören und für die Neuerstellung vorbereiten
-                    ZNetView znetView = ZNetScene.instance.FindInstance(zdo);
-                    if (znetView != null)
-                    {
-                        ZNetScene.instance.Destroy(znetView.gameObject);
-                    }
-                    preparedZDOs.Add(petZDOID);
-                }
-            }
-
-            if (preparedZDOs.Count > 0)
-            {
-                serverPetTeleportCache[teleportingPlayerZDOID] = preparedZDOs;
-                BetterTamesPlugin.LogIfDebug($"SERVER: Cached {preparedZDOs.Count} pets for player {teleportingPlayerZDOID}.", DebugFeature.TeleportFollow);
-            }
-        }
-
-        // In RPCManager.cs
-        private static void RPC_RecreatePetsAtDestination_Server(long senderPeerID, ZPackage pkg)
-        {
-            if (!ZNet.instance.IsServer()) return;
-
-            Vector3 destinationPos = pkg.ReadVector3();
-            Quaternion playerRot = pkg.ReadQuaternion();
-
-            ZNetPeer peer = ZNet.instance.GetPeer(senderPeerID);
-            if (peer == null) return;
-
-            ZDOID playerZDOID = peer.m_characterID;
-            if (!serverPetTeleportCache.TryGetValue(playerZDOID, out var cachedPets) || cachedPets.Count == 0)
-            {
-                return;
-            }
-
-            BetterTamesPlugin.LogIfDebug($"SERVER: Recreating {cachedPets.Count} pets for player {playerZDOID} at {destinationPos}.", DebugFeature.TeleportFollow);
-
-            // KORREKTUR: Rufe die richtige Methode auf, um eine LISTE von Positionen zu erhalten.
-            var spawnPoints = DistanceTeleportLogic.CalculateDistributedSpawnPositions(destinationPos, playerRot, cachedPets.Count);
-
-            for (int i = 0; i < cachedPets.Count; i++)
-            {
-                ZDO zdo = ZDOMan.instance.GetZDO(cachedPets[i]);
-                if (zdo != null && zdo.IsValid())
-                {
-                    Vector3 spawnPos = spawnPoints[i];
-                    Quaternion spawnRot = Quaternion.LookRotation((destinationPos - spawnPos).normalized);
-
-                    zdo.SetPosition(spawnPos);
-                    zdo.SetRotation(spawnRot);
-                    zdo.SetOwner(peer.m_uid); // Wichtig: Den Besitz an den Client zurückgeben
-                }
-            }
-            serverPetTeleportCache.Remove(playerZDOID);
-        }
-        #endregion
-
-        #region Client-Side RPC Handlers
-
-        private static void RPC_MercyKill_AllClients(long sender, ZDOID targetZDOID)
-        {
             BetterTamesPlugin.LogIfDebug($"RPC_MercyKill_AllClients triggered for ZDOID: {targetZDOID} from sender: {sender}", DebugFeature.PetProtection);
             ZDO targetZDO = ZDOMan.instance.GetZDO(targetZDOID);
             if (targetZDO == null)
@@ -133,8 +49,74 @@ namespace BetterTames.Utils
             // Setze die Flag direkt über die ZDO, unabhängig vom GameObject
             targetZDO.Set("BT_MercyKill", true);
             BetterTamesPlugin.LogIfDebug($"BT_MercyKill flag set for ZDOID {targetZDOID} via ZDO. Pet protection bypassed on next damage.", DebugFeature.PetProtection);
+
+            // Immediately notify clients (including the owner) to mark locally — helps avoid replication race
+            try
+            {
+                ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_NOTIFY_MERCY_KILL, new object[] { targetZDOID.ToString() });
+                BetterTamesPlugin.LogIfDebug($"NotifyMercyKill broadcast sent for ZDOID {targetZDOID}.", DebugFeature.PetProtection);
+            }
+            catch (Exception ex)
+            {
+                BetterTamesPlugin.LogIfDebug($"Exception while broadcasting NotifyMercyKill: {ex}", DebugFeature.PetProtection);
+            }
         }
 
+        // Client receives immediate notify from server and marks the ZDO locally (owner will see it fast)
+        private static void RPC_NotifyMercyKill_Client(long sender, string targetZDOID_str)
+        {
+            try
+            {
+                if (ZNet.instance == null || ZNet.instance.IsServer()) return;
+
+                ZDOID zdoid = ParseZDOID(targetZDOID_str);
+                if (zdoid.IsNone()) return;
+
+                ZDO zdo = ZDOMan.instance.GetZDO(zdoid);
+                if (zdo == null) return;
+
+                // Set local flag immediately so owner logic doesn't lose the race
+                zdo.Set("BT_MercyKill", true);
+                BetterTamesPlugin.LogIfDebug($"Client received NotifyMercyKill for ZDOID {zdoid}. Local BT_MercyKill = {zdo.GetBool("BT_MercyKill", false)}", DebugFeature.PetProtection);
+
+                // If this client is the owner of the ZDO, perform the authoritative kill locally immediately.
+                try
+                {
+                    if (zdo.IsValid() && zdo.IsOwner())
+                    {
+                        BetterTamesPlugin.LogIfDebug($"This client is owner for ZDOID {zdoid}. Attempting local owner-side kill.", DebugFeature.PetProtection);
+
+                        ZNetView zview = ZNetScene.instance.FindInstance(zdo);
+                        if (zview != null)
+                        {
+                            Character character = zview.GetComponent<Character>();
+                            if (character != null)
+                            {
+                                // Owner executes the kill (authoritative AI/clientside logic)
+                                character.SetHealth(0);
+                                BetterTamesPlugin.LogIfDebug($"Owner performed local Kill() for {character.m_name} (ZDOID: {zdoid}).", DebugFeature.PetProtection);
+                            }
+                            else
+                            {
+                                BetterTamesPlugin.LogIfDebug($"Owner: found ZNetView but no Character component for ZDOID {zdoid}.", DebugFeature.PetProtection);
+                            }
+                        }
+                        else
+                        {
+                            BetterTamesPlugin.LogIfDebug($"Owner: no instance found for ZDOID {zdoid} when trying to perform local kill.", DebugFeature.PetProtection);
+                        }
+                    }
+                }
+                catch (Exception exOwnerKill)
+                {
+                    BetterTamesPlugin.LogIfDebug($"Exception while attempting owner local kill in RPC_NotifyMercyKill_Client: {exOwnerKill}", DebugFeature.PetProtection);
+                }
+            }
+            catch (Exception ex)
+            {
+                BetterTamesPlugin.LogIfDebug($"Exception in RPC_NotifyMercyKill_Client: {ex}", DebugFeature.PetProtection);
+            }
+        }
         private static void RPC_TeleportSync_Client(long sender, string zdoID_str, ZPackage pkg)
         {
             try
@@ -149,6 +131,13 @@ namespace BetterTames.Utils
 
                 Vector3 position = pkg.ReadVector3();
                 Quaternion rotation = pkg.ReadQuaternion();
+
+                rotation = rotation.normalized;
+                if (float.IsNaN(rotation.x) || float.IsNaN(rotation.y) || float.IsNaN(rotation.z) || float.IsNaN(rotation.w))
+                {
+                    BetterTamesPlugin.LogIfDebug("RPC_TeleportSync_Client: received invalid rotation quaternion, ignoring rotation.", DebugFeature.TeleportFollow);
+                    rotation = Quaternion.identity;
+                }
 
                 ZNetView znetView = ZNetScene.instance.FindInstance(zdo);
                 if (znetView != null)
@@ -169,33 +158,6 @@ namespace BetterTames.Utils
         }
 
 
-        #endregion
-
-        #region Helper Methods
-
-        // TODO: Diese Logik sollte in eine `DistanceTeleportLogic`-Klasse.
-        private static List<Vector3> CalculateDistributedSpawnPositions(Vector3 center, Quaternion direction, int count)
-        {
-            var positions = new List<Vector3>();
-            float radius = 3f; // Startradius
-            float angleStep = 30f; // Winkel zwischen den Tieren
-
-            for (int i = 0; i < count; i++)
-            {
-                float angle = (i - (count - 1) / 2f) * angleStep;
-                Vector3 offset = Quaternion.Euler(0, angle, 0) * (direction * Vector3.back);
-                Vector3 spawnPos = center + offset * radius;
-
-                // Finde den Boden für die exakte Position
-                if (ZoneSystem.instance.FindFloor(spawnPos + Vector3.up, out float floorHeight))
-                {
-                    spawnPos.y = floorHeight + 0.2f;
-                }
-                positions.Add(spawnPos);
-            }
-            return positions;
-        }
-
         private static ZDOID ParseZDOID(string zdoID_str)
         {
             if (string.IsNullOrEmpty(zdoID_str)) return ZDOID.None;
@@ -211,6 +173,6 @@ namespace BetterTames.Utils
             return ZDOID.None;
         }
 
-        #endregion
+
     }
 }
