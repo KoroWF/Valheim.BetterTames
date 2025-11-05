@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using UnityEngine;
 
 namespace BetterTames.PetProtection
 {
@@ -8,6 +9,8 @@ namespace BetterTames.PetProtection
         /// <summary>
         /// Verhindert, dass die KI eines "ausgeknockten" Tieres ausgeführt wird.
         /// Stattdessen wird es gezwungen, liegen zu bleiben.
+        /// Zusätzlich: Synchronisiert die Sichtbarkeit basierend auf dem ZDO-Flag "BT_TransformedToWisp"
+        /// damit Side-Clients die Unsichtbarkeit korrekt übernehmen.
         /// </summary>
         [HarmonyPatch(typeof(MonsterAI), "UpdateAI")]
         [HarmonyPrefix]
@@ -15,6 +18,9 @@ namespace BetterTames.PetProtection
         {
             ZNetView nview = __instance.GetComponent<ZNetView>();
             if (nview == null || !nview.IsValid()) return true;
+
+            // Ensure visibility state is synced on all clients based on the ZDO flag.
+            SyncRenderersWithZDO(__instance);
 
             ZDO zdo = nview.GetZDO();
             if (zdo == null || !zdo.GetBool("isRecoveringFromStun", false))
@@ -54,6 +60,63 @@ namespace BetterTames.PetProtection
             }
 
             return true;
+        }
+
+        // Helper: sync renderers/colliders on clients according to ZDO flag "BT_TransformedToWisp".
+        private static void SyncRenderersWithZDO(MonsterAI ai)
+        {
+            if (ai == null) return;
+
+            ZNetView nview = ai.GetComponent<ZNetView>();
+            if (nview == null || !nview.IsValid()) return;
+
+            ZDO zdo = nview.GetZDO();
+            if (zdo == null) return;
+
+            bool transformed = zdo.GetBool("BT_TransformedToWisp", false);
+            Character character = ai.GetComponent<Character>();
+            if (character == null) return;
+
+            bool desiredVisible = !transformed;
+
+            // Check current renderer state to avoid toggling every frame unnecessarily.
+            bool anyRendererEnabled = false;
+            foreach (Renderer r in character.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r != null && r.enabled)
+                {
+                    anyRendererEnabled = true;
+                    break;
+                }
+            }
+
+            if (anyRendererEnabled != desiredVisible)
+            {
+                ApplyRendererVisibility(character, desiredVisible);
+            }
+        }
+
+        private static void ApplyRendererVisibility(Character character, bool visible)
+        {
+            if (character == null) return;
+
+            // Toggle colliders
+            foreach (Collider col in character.GetComponentsInChildren<Collider>(true))
+            {
+                if (col != null)
+                {
+                    col.enabled = visible;
+                }
+            }
+
+            // Toggle renderers
+            foreach (Renderer renderer in character.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer != null)
+                {
+                    renderer.enabled = visible;
+                }
+            }
         }
     }
 }

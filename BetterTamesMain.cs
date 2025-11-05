@@ -3,6 +3,7 @@ using BetterTames.ConfigSynchronization;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
+using UnityEngine; // added for Coroutine
 
 namespace BetterTames
 {
@@ -35,6 +36,7 @@ namespace BetterTames
         public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
 
         public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
+<<<<<<< HEAD
 <<<<<<< Updated upstream
 =======
         public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
@@ -43,6 +45,9 @@ namespace BetterTames
         public const string RPC_REQUEST_UNFOLLOW = "BT_RequestUnfollow";
         public const string RPC_EXECUTE_UNFOLLOW = "BT_ExecuteUnfollow";
 >>>>>>> Stashed changes
+=======
+        public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
+>>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
         #endregion
 
         #region Properties
@@ -51,6 +56,9 @@ namespace BetterTames
         public static ServerSync.ConfigSync _configSync;
         private readonly Harmony _harmony = new Harmony(PluginId);
         private static bool _corePatchesAppliedSession = false;
+
+        // Coroutine handle so we can stop it cleanly
+        private Coroutine _petMonitorCoroutine;
         #endregion
 
         #region Lifecycle Methods
@@ -81,6 +89,21 @@ namespace BetterTames
         {
             LogIfDebug("OnDestroy called. Unpatching Harmony...", DebugFeature.Initialization);
             _harmony?.UnpatchSelf();
+
+            // Stop pet monitor coroutine if running
+            try
+            {
+                if (_petMonitorCoroutine != null && Player.m_localPlayer != null)
+                {
+                    Player.m_localPlayer.StopCoroutine(_petMonitorCoroutine);
+                    _petMonitorCoroutine = null;
+                    LogIfDebug("Stopped PlayerPetMonitor coroutine on destroy.", DebugFeature.TeleportFollow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"Failed stopping PlayerPetMonitor coroutine: {ex}");
+            }
         }
         #endregion
 
@@ -98,13 +121,13 @@ namespace BetterTames
 
             // NEU: Initialisiere den PetProtectionPatch (lädt das Wisp-Prefab)
             PetProtection.PetProtectionPatch.Initialize();
-
-            // (Der Rest der Methode bleibt gleich)
+             // (Der Rest der Methode bleibt gleich)
             if (!_corePatchesAppliedSession)
             {
                 ApplyCorePatches();
                 _corePatchesAppliedSession = true;
             }
+
         }
         #endregion
 
@@ -129,10 +152,25 @@ namespace BetterTames
         {
             try
             {
+                // Start the distance-check coroutine on the local player's MonoBehaviour instead of adding a new component.
+                if (Player.m_localPlayer != null)
+                {
+                    // store coroutine handle on the plugin instance so we can stop it later
+                    Instance._petMonitorCoroutine = Player.m_localPlayer.StartCoroutine(BetterTames.DistanceTeleport.PlayerPetMonitor.MonitorRoutine());
+                    LogIfDebug("Started PlayerPetMonitor coroutine on local player.", DebugFeature.TeleportFollow);
+                }
+                else
+                {
+                    LogIfDebug("Player.m_localPlayer was null when attempting to start PlayerPetMonitor.", DebugFeature.TeleportFollow);
+                }
+
                 LogIfDebug("Applying core feature patches...", DebugFeature.Initialization);
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
+<<<<<<< HEAD
 <<<<<<< Updated upstream
                 Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
+=======
+>>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
                 Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
 =======
                 Instance._harmony.PatchAll(typeof(MakeCommandable.Player_UpdateTeleport_Patch));

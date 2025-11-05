@@ -1,24 +1,18 @@
-﻿using BetterTames.DistanceTeleport;
+﻿using BepInEx.Configuration;
+using BetterTames.DistanceTeleport;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-
+using BetterTames.ConfigSynchronization;
 namespace BetterTames
 {
-    // Token: 0x0200000A RID: 10
+
     public static class DistanceTeleportLogic
     {
         private static readonly int groundLayerMask = LayerMask.GetMask("Default", "static_solid", "Default_small", "piece", "terrain", "blocker", "vehicle");
 
-        /// <summary>
-        /// Dies ist die exakte Teleport-Logik aus deinem alten Patch, jetzt als wiederverwendbare Methode.
-        /// </summary>
-        /// <summary>
-        /// Führt den Teleport eines Charakters hinter den Spieler aus.
-        /// Dies ist eine 1:1-Kopie der funktionierenden Logik aus dem DistanceTeleportPatch.
-        /// </summary>
-        /// <param name="characterToTeleport">Das Tier, das teleportiert werden soll.</param>
-        /// <param name="followTarget">Der Spieler, dem das Tier folgt.</param>
+        public const float TELEPORT_CHECK_INTERVAL = 5f;
+
         public static void ExecuteTeleportBehindPlayer(Character characterToTeleport, GameObject followTarget)
         {
             // --- Beginn des extrahierten Codes ---
@@ -67,22 +61,50 @@ namespace BetterTames
             float distanceBehind = UnityEngine.Random.Range(minDistance, maxDistance);
             float sideOffset = UnityEngine.Random.Range(-sideOffsetRange / 2f, sideOffsetRange / 2f);
 
+            // Wenn das Tier sich in der Stun-Phase von PetProtection befindet,
+            // dann 30f weiter hinter dem Spieler platzieren.
+            try
+            {
+                if (zdo != null && zdo.GetBool("isRecoveringFromStun", false))
+                {
+                    BetterTamesPlugin.LogIfDebug($"Pet {characterToTeleport.m_name} is in pet-protection stun phase — increasing teleport distance by 30f.", DebugFeature.TeleportFollow);
+                    distanceBehind += 30f;
+                }
+            }
+            catch (Exception ex)
+            {
+                BetterTamesPlugin.LogIfDebug($"Exception while checking stun flag for {characterToTeleport.m_name}: {ex}", DebugFeature.TeleportFollow);
+            }
+
             Vector3 positionBehind = -forwardVec * distanceBehind;
             Vector3 positionWithSideOffset = rightVec * sideOffset;
             Vector3 targetPosition = playerPosition + positionBehind + positionWithSideOffset;
 
             // Bodensuche per Raycast, um die korrekte Y-Position zu finden
-            if (Physics.Raycast(targetPosition + Vector3.up * 5f, Vector3.down, out RaycastHit hitInfo, 10f, DistanceTeleportPatch.groundLayerMask))
+            if (Physics.Raycast(targetPosition + Vector3.up * 5f, Vector3.down, out RaycastHit hitInfo, 10f, DistanceTeleportLogic.groundLayerMask))
             {
                 targetPosition.y = hitInfo.point.y + 1f;
             }
             else
             {
                 targetPosition.y = playerPosition.y; // Fallback, falls kein Boden gefunden wird
+                BetterTamesPlugin.LogIfDebug("No ground found via Raycast for auto-teleport of " + characterToTeleport.m_name + ", using target Y position.", DebugFeature.TeleportFollow);
             }
 
             // Finale Rotation und Teleport-Aktion
-            Quaternion targetRotation = Quaternion.LookRotation(forwardVec);
+            Quaternion targetRotation;
+            // Guard against zero-length forward vector that would cause LookRotation to throw.
+            if (forwardVec.sqrMagnitude < 1e-6f)
+            {
+                // Fallback to player's rotation if forward vector is invalid
+                targetRotation = playerRotation;
+            }
+            else
+            {
+                // Use normalized forward vector and ensure quaternion is normalized
+                targetRotation = Quaternion.LookRotation(forwardVec.normalized);
+            }
+            targetRotation = targetRotation.normalized;
 
             // Manuelles Setzen von Position und Rotation
             characterToTeleport.transform.position = targetPosition;
@@ -100,10 +122,11 @@ namespace BetterTames
             }
 
             // Senden der Synchronisations-Nachricht an alle Spieler
-            BetterTamesPlugin.LogIfDebug($"Teleported {characterToTeleport.m_name} to {targetPosition}. Sending RPC.", DebugFeature.TeleportFollow);
+            BetterTamesPlugin.LogIfDebug($"Teleported {characterToTeleport.m_name} to {targetPosition} (behind followTarget). Sending RPC.", DebugFeature.TeleportFollow);
             ZPackage package = new ZPackage();
             package.Write(targetPosition);
-            package.Write(targetRotation);
+            // write a normalized quaternion to reduce chance of non-unit quaternions being serialized
+            package.Write(targetRotation.normalized);
             string zdoIDString = $"{zdo.m_uid.UserID}:{zdo.m_uid.ID}";
 
             // Finde den aktuellen Owner (Client) des ZDO
@@ -117,42 +140,79 @@ namespace BetterTames
             // --- Ende des extrahierten Codes ---
         }
 
-        // Diese Methode wird nicht mehr direkt aufgerufen, kann aber als Helfer bleiben
-        public static string GetPrefabName(Character c)
+        /// <summary>
+        /// Überprüft die Distanz und führt bei Bedarf einen Teleport aus.
+        /// Dies ist die vollständige Logik aus dem alten DistanceTeleportPatch.Postfix, umgebaut als wiederverwendbare Methode.
+        /// </summary>
+        /// <param name="tame">Das gezähmte Tier (Character).</param>
+        /// <returns>True, wenn ein Teleport ausgeführt wurde.</returns>
+        public static bool CheckDistanceAndTeleport(Character tame)
         {
-            return c != null ? c.name.Replace("(Clone)", "") : "UnknownCharacter";
-        }
+            // Früher Abbruch, wenn Feature deaktiviert
+            if (BetterTamesPlugin.ConfigInstance?.Tames.TeleportFollowEnabled?.Value != true)
+            {
+                return false;
+            }
 
-        // Token: 0x0600004A RID: 74 RVA: 0x00003764 File Offset: 0x00001964
-        public static float GetPetHeight(Character character)
-        {
-            if (character == null)
+            if (ZNet.instance == null)
             {
-                BetterTamesPlugin.LogIfDebug("GetPetHeight: Pet nicht gefunden. Fallback auf Höhe 1f.", DebugFeature.TeleportFollow);
-                return 1f;
+                return false;
             }
-            CapsuleCollider component = character.GetComponent<CapsuleCollider>();
-            if (component != null)
+
+            ZNetView component = tame.GetComponent<ZNetView>();
+            if (component == null || !component.IsValid())
             {
-                float num = component.height * character.transform.localScale.y;
-                BetterTamesPlugin.LogIfDebug(string.Format("GetPetHeight für {0}: CapsuleCollider gefunden. Höhe = {1:F2} (capsule.height={2:F2} * scale.y={3:F2})", new object[]
-                {
-                    DistanceTeleportLogic.GetPrefabName(character),
-                    num,
-                    component.height,
-                    character.transform.localScale.y
-                }), DebugFeature.TeleportFollow);
-                return num;
+                return false;
             }
-            Collider component2 = character.GetComponent<Collider>();
-            if (component2 != null)
+            ZDO zdo = component.GetZDO();
+            if (zdo == null)
             {
-                float y = component2.bounds.size.y;
-                BetterTamesPlugin.LogIfDebug(string.Format("GetPetHeight für {0}: Fallback auf generischen Collider ({1}) gefunden. Höhe (bounds.size.y) = {2:F2}", DistanceTeleportLogic.GetPrefabName(character), component2.GetType().Name, y), DebugFeature.TeleportFollow);
-                return y;
+                return false;
             }
-            BetterTamesPlugin.LogIfDebug("GetPetHeight für " + DistanceTeleportLogic.GetPrefabName(character) + ": Keinen Collider gefunden. Fallback auf Höhe 1f.", DebugFeature.TeleportFollow);
-            return 1f;
+
+            if (!tame.IsTamed())
+            {
+                return false;
+            }
+
+            GameObject followTarget = tame.GetComponent<MonsterAI>().GetFollowTarget();
+            if (followTarget == null)
+            {
+                return false;
+            }
+
+            Vector3 position = tame.transform.position;
+            Vector3 position2 = followTarget.transform.position;
+
+            MonsterAI monsterAI = tame.GetComponent<MonsterAI>();
+            Character targetCreature = monsterAI.GetTargetCreature();
+            StaticTarget staticTarget = monsterAI.GetStaticTarget();
+            bool flag4 = (targetCreature != null && BaseAI.IsEnemy(tame, targetCreature)) || staticTarget != null;
+            if (Vector3.Distance(position, position2) < 5f && !flag4)
+            {
+                monsterAI.StopMoving();
+            }
+
+            if (!component.IsOwner())
+            {
+                return false;
+            }
+
+            // FIX: Cast zu float (Mathf.Max gibt int zurück, wenn Value int ist)
+            float num4 = Mathf.Max((float)BetterTamesPlugin.ConfigInstance.Tames.TeleportOnDistanceMaxRange.Value, 10f);
+            float sqrMagnitude = (position - position2).sqrMagnitude;
+            float num5 = num4 * num4;
+            if (sqrMagnitude <= num5)
+            {
+                BetterTamesPlugin.LogIfDebug($"Distance check for {tame.m_name}: {Mathf.Sqrt(sqrMagnitude):F1}m < {num4}m threshold. No teleport.", DebugFeature.TeleportFollow);
+                return false;
+            }
+
+            BetterTamesPlugin.LogIfDebug(string.Format("DistanceSqr {0:F1} > {1:F1}. Attempting teleport for {2}.", sqrMagnitude, num5, tame.m_name), DebugFeature.TeleportFollow);
+
+            // Rufe die Teleport-Methode auf
+            ExecuteTeleportBehindPlayer(tame, followTarget);
+            return true;
         }
 
         public static List<Vector3> CalculateDistributedSpawnPositions(Vector3 playerPos, Quaternion playerRot, int petCount)
@@ -180,67 +240,5 @@ namespace BetterTames
             return positions;
         }
 
-
-        // Token: 0x0600004B RID: 75 RVA: 0x00003874 File Offset: 0x00001A74
-        public static void TeleportPetToActualPosition(Character petCharacter, Vector3 targetPosition, Quaternion targetRotation, Player teleportingPlayer)
-        {
-            if (petCharacter == null)
-            {
-                return;
-            }
-            ZNetView component = petCharacter.GetComponent<ZNetView>();
-            if (component == null || !component.IsValid())
-            {
-                return;
-            }
-            string prefabName = DistanceTeleportLogic.GetPrefabName(petCharacter);
-            BetterTamesPlugin.LogIfDebug(string.Format("TeleportPetToActualPosition: Setting {0} to {1} with rotation {2}", prefabName, targetPosition, targetRotation.eulerAngles), DebugFeature.TeleportFollow);
-            petCharacter.transform.position = targetPosition;
-            petCharacter.transform.rotation = targetRotation;
-            Rigidbody component2 = petCharacter.GetComponent<Rigidbody>();
-            if (component2 != null)
-            {
-                if (!component2.isKinematic)
-                {
-                    BetterTamesPlugin.LogIfDebug(prefabName + " ist nicht kinematisch, Velocity wird zurückgesetzt.", DebugFeature.TeleportFollow);
-                    component2.velocity = Vector3.zero;
-                    component2.angularVelocity = Vector3.zero;
-                }
-                else
-                {
-                    BetterTamesPlugin.LogIfDebug(prefabName + " ist kinematisch, Velocity-Änderungen übersprungen.", DebugFeature.TeleportFollow);
-                }
-            }
-            Tameable component3 = petCharacter.GetComponent<Tameable>();
-            if (component3 != null)
-            {
-                component3.m_unsummonDistance = 0f;
-            }
-            MonsterAI component4 = petCharacter.GetComponent<MonsterAI>();
-            if (component4 != null)
-            {
-                component4.StopMoving();
-                if (teleportingPlayer != null)
-                {
-                    component4.SetFollowTarget(teleportingPlayer.gameObject);
-                }
-            }
-            ZDO zdo = component.GetZDO();
-            zdo.SetPosition(targetPosition);
-            zdo.SetRotation(targetRotation);
-            ZPackage zpackage = new ZPackage();
-            zpackage.Write(targetPosition);
-            zpackage.Write(targetRotation);
-            string text = string.Format("{0}:{1}", zdo.m_uid.UserID, zdo.m_uid.ID);
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "BT_TeleportSync", new object[]
-            {
-                text,
-                zpackage
-            });
-            BetterTamesPlugin.LogIfDebug("TeleportPetToActualPosition: RPC_TELEPORT_SYNC sent for " + prefabName + ".", DebugFeature.TeleportFollow);
-        }
-
-        // Token: 0x04000029 RID: 41
-        public const float PET_PLACEMENT_BUFFER = 0.15f;
     }
 }

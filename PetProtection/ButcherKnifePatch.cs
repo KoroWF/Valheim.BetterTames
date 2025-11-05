@@ -6,6 +6,7 @@ namespace BetterTames.PetProtection
     public static class ButcherKnifePatch
     {
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         public static bool Prefix(Character __instance, HitData hit)
         {
             // Debug: Bestätige, dass der Patch ausgeführt wird
@@ -20,14 +21,17 @@ namespace BetterTames.PetProtection
                     ZDOID targetZDOID = nview.GetZDO().m_uid;
                     BetterTamesPlugin.LogIfDebug($"Butcher Knife used on {__instance.m_name} (ZDOID: {targetZDOID}). IsOwner: {nview.IsOwner()}", DebugFeature.PetProtection);
 
-                    // Setze die Flag lokal, wenn du der Owner bist
+                    // If we are the owner of the ZDO, set the flag locally and allow damage
                     if (nview.IsOwner())
                     {
                         BetterTamesPlugin.LogIfDebug($"Owner setting BT_MercyKill flag for {__instance.m_name} locally.", DebugFeature.PetProtection);
                         nview.GetZDO().Set("BT_MercyKill", true);
+                        // Allow damage to proceed on the owner
+                        return true;
                     }
                     else
                     {
+<<<<<<< HEAD
 <<<<<<< Updated upstream
                         // Sende RPC an alle, wenn ein anderer Client angreift
                         BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to all clients.", DebugFeature.PetProtection);
@@ -55,9 +59,17 @@ namespace BetterTames.PetProtection
                         return true;
 >>>>>>> Stashed changes
                     }
+=======
+                        // Non-owner: send RPC to server (zonehost) and DO NOT apply local damage.
+                        // This avoids a race where the client kills the pet locally before the server sets the flag.
+                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and blocking local damage.", DebugFeature.PetProtection);
+                        ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                        BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage blocked until server processes request.", DebugFeature.PetProtection);
+>>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
 
-                    // Lass den Schaden durch, die Flag übernimmt den Bypass
-                    return true;
+                        // Prevent local damage; server will handle the mercy kill if allowed.
+                        return false;
+                    }
                 }
                 else
                 {
@@ -65,8 +77,8 @@ namespace BetterTames.PetProtection
                 }
             }
 
-            return true; // Normaler Schadensfluss, wenn kein ButcherKnife
-        }
+            return true; // Normal damage flow when not using butcher knife bypass
+        }   
 
         private static bool CheckButcherKnifeBypass(Character character, HitData hit)
         {
