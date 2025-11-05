@@ -88,7 +88,7 @@
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />
-    <Compile Include="MakeCommandable\Class1.cs" />
+    <Compile Include="MakeCommandable\ClearOnTeleport.cs" />
     <Compile Include="MakeCommandable\MakeCommandable.cs" />
     <Compile Include="PetProtection\ButcherKnifePatch.cs" />
     <Compile Include="PetProtection\EnemyHudPatch.cs" />

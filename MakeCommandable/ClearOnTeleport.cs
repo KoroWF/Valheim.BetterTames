@@ -7,16 +7,18 @@ using UnityEngine;
 
 namespace BetterTames.MakeCommandable
 {
-    [HarmonyPatch(typeof(Tameable), "Interact")]
-    public static class ClearOnTeleport
+    [HarmonyPatch(typeof(Player), "UpdateTeleport")]
+    public class Player_UpdateTeleport_Patch
     {
-     [HarmonyPatch(typeof(Player), "TeleportTo")]
-    public static class Player_TeleportTo_Patch
-    {
+        private static bool wasTeleporting = false;
+
         [HarmonyPostfix]
         public static void Postfix(Player __instance)
         {
-            BetterTamesPlugin.LogIfDebug("=== TeleportTo Postfix TRIGGERED for player ===", DebugFeature.MakeCommandable);
+            // Prüfe, ob der Teleport gerade beendet wurde
+            if (wasTeleporting && !__instance.IsTeleporting())
+            {
+                BetterTamesPlugin.LogIfDebug("=== TeleportTo Postfix TRIGGERED for player ===", DebugFeature.MakeCommandable);
 
             if (__instance != Player.m_localPlayer) return;
 
@@ -39,24 +41,32 @@ namespace BetterTames.MakeCommandable
             {
                 BetterTamesPlugin.LogIfDebug($"Failed starting PostTeleportCleanupCoroutine: {ex.Message} | Stack: {ex.StackTrace}", DebugFeature.MakeCommandable);
             }
+            }
+            wasTeleporting = __instance.IsTeleporting();
         }
+        
 
         private static IEnumerator PostTeleportCleanupCoroutine(Player player, int maxPets, float checkRadius)
         {
             BetterTamesPlugin.LogIfDebug("=== Coroutine STARTED ===", DebugFeature.MakeCommandable);
 
-            float timeout = 8f; // Reduziert für schnelleres Testen
             float waited = 0f;
-            yield return null;
+            float timeout = 8f; // Behalten Sie den Timeout als Notfall-Breaker bei
 
-            while ((ZRoutedRpc.instance == null || Object.FindObjectsOfType<ZNetView>().Length == 0) && waited < timeout)
+            // 2. Warten Sie, bis der Spieler NICHT mehr teleportiert (Teleport-Fade-Out).
+            // Dies signalisiert, dass der Spieler die Szene am Zielort geladen hat.
+            while (player.IsTeleporting() && waited < timeout)
             {
                 waited += Time.deltaTime;
                 yield return null;
             }
 
-            BetterTamesPlugin.LogIfDebug($"Coroutine waited {waited:F2}s (timeout {timeout}s). Proceeding.", DebugFeature.MakeCommandable);
+            // 3. EINE Frame-Verzögerung zur Sicherheit.
+            // Dies gibt der ZNetScene den letzten notwendigen Frame, um die von TeleportEverything 
+            // erzeugten ZDOs in physische GameObjects zu instanziieren.
+            yield return null;
 
+            BetterTamesPlugin.LogIfDebug($"Coroutine waited {waited:F2}s. Player finished teleporting. Checking for pets now.", DebugFeature.MakeCommandable);
             if (player == null || player != Player.m_localPlayer) yield break;
 
             string playerName = player.GetPlayerName();
@@ -132,7 +142,9 @@ namespace BetterTames.MakeCommandable
                             {
                                 try
                                 {
-                                    ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, new object[] { zdo.m_uid.ToString() });
+                                    ZNetPeer serverpeer = ZNet.instance.GetServerPeer();
+                                    long ServerPeerID = serverpeer.m_uid;
+                                    ZRoutedRpc.instance.InvokeRoutedRPC(ServerPeerID, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, new object[] { zdo.m_uid.ToString() });
                                     BetterTamesPlugin.LogIfDebug($"Requested owner {ownerId} to unfollow pet {follower.GetHoverName()}.", DebugFeature.MakeCommandable);
                                     clearedCount++;
                                 }
@@ -162,5 +174,7 @@ namespace BetterTames.MakeCommandable
 
             BetterTamesPlugin.LogIfDebug($"=== Coroutine FINISHED: Cleared {clearedCount}/{numberToUnfollow} excess pets (random) ===", DebugFeature.MakeCommandable);
         }
+
     }
+    
 }

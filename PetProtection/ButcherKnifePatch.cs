@@ -37,7 +37,10 @@ namespace BetterTames.PetProtection
                         BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and ALLOWING local damage.", DebugFeature.PetProtection);
                         try
                         {
-                            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                            ZNetPeer serverpeer = ZNet.instance.GetServerPeer();
+                            long ServerPeerID = serverpeer.m_uid;
+                            ZRoutedRpc.instance.InvokeRoutedRPC(ServerPeerID, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                           // ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
                             BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage allowed.", DebugFeature.PetProtection);
                         }
                         catch (System.Exception ex)
