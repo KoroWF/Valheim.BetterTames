@@ -21,6 +21,7 @@ namespace BetterTames.Utils
             RPCHelper.RegisterClient<string>(BetterTamesPlugin.RPC_NOTIFY_MERCY_KILL, RPC_NotifyMercyKill_Client);
             RPCHelper.RegisterClient<string, ZPackage>(BetterTamesPlugin.RPC_TELEPORT_SYNC, RPC_TeleportSync_Client);
 
+            RPCHelper.RegisterClient<string>(BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, RPC_RequestUnfollow_Server);
             // evtl. weitere client sync handlers hier (use RPCHelper.RegisterClient...)
         }
 
@@ -157,6 +158,44 @@ namespace BetterTames.Utils
             }
         }
 
+                // Neu: Owner-RPC-Handler um autoritativ Unfollow zu setzen
+        private static void RPC_RequestUnfollow_Server(long sender, string targetZDOID_str)
+        {
+            try
+            {
+                if (ZNet.instance == null) return;
+
+                ZDOID zdoid = ParseZDOID(targetZDOID_str);
+                if (zdoid.IsNone()) return;
+
+                ZDO zdo = ZDOMan.instance.GetZDO(zdoid);
+                if (zdo == null) return;
+
+                // Nur der Owner darf die autoritative Änderung ausführen
+                if (!zdo.IsValid() || !zdo.IsOwner())
+                {
+                    BetterTamesPlugin.LogIfDebug($"RPC_RequestUnfollow_Server: caller {sender}, but this client is not owner for {zdoid}. Ignoring.", DebugFeature.MakeCommandable);
+                    return;
+                }
+
+                // persistentes Feld löschen
+                zdo.Set(ZDOVars.s_follow, "");
+
+                // lokale Instanz entfolgen (falls vorhanden)
+                ZNetView zview = ZNetScene.instance.FindInstance(zdo);
+                if (zview != null)
+                {
+                    Character character = zview.GetComponent<Character>();
+                    character?.GetComponent<MonsterAI>()?.SetFollowTarget(null);
+                }
+
+                BetterTamesPlugin.LogIfDebug($"RPC_RequestUnfollow_Server: cleared follow for {zdoid} (requested by {sender}).", DebugFeature.MakeCommandable);
+            }
+            catch (Exception ex)
+            {
+                BetterTamesPlugin.LogIfDebug($"Exception in RPC_RequestUnfollow_Server: {ex}", DebugFeature.MakeCommandable);
+            }
+        }
 
         private static ZDOID ParseZDOID(string zdoID_str)
         {

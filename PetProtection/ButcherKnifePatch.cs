@@ -31,14 +31,22 @@ namespace BetterTames.PetProtection
                     }
                     else
                     {
-                        // Non-owner: send RPC to server (zonehost) and DO NOT apply local damage.
-                        // This avoids a race where the client kills the pet locally before the server sets the flag.
-                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and blocking local damage.", DebugFeature.PetProtection);
-                        ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
-                        BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage blocked until server processes request.", DebugFeature.PetProtection);
+                        // Non-owner: send RPC to server (zonehost) but ALLOW local damage as well.
+                        // This makes the butcherknife damage apply immediately on the client (so the pet can die locally),
+                        // while still notifying the server to perform the authoritative action.
+                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and ALLOWING local damage.", DebugFeature.PetProtection);
+                        try
+                        {
+                            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                            BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage allowed.", DebugFeature.PetProtection);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            BetterTamesPlugin.LogIfDebug($"Exception while sending MercyKill RPC from non-owner: {ex}", DebugFeature.PetProtection);
+                        }
 
-                        // Prevent local damage; server will handle the mercy kill if allowed.
-                        return false;
+                        // Allow local damage so the pet can die immediately on the hitting client.
+                        return true;
                     }
                 }
                 else
