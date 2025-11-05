@@ -1,4 +1,4 @@
-﻿using BepInEx;
+using BepInEx;
 using BetterTames.ConfigSynchronization;
 using HarmonyLib;
 using System;
