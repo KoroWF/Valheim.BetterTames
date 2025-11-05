@@ -28,10 +28,32 @@ namespace BetterTames.PetProtection
                     }
                     else
                     {
+<<<<<<< Updated upstream
                         // Sende RPC an alle, wenn ein anderer Client angreift
                         BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to all clients.", DebugFeature.PetProtection);
                         ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, targetZDOID);
                         BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to all for ZDOID: {targetZDOID}.", DebugFeature.PetProtection);
+=======
+                        // Non-owner: send RPC to server (zonehost) but ALLOW local damage as well.
+                        // This makes the butcherknife damage apply immediately on the client (so the pet can die locally),
+                        // while still notifying the server to perform the authoritative action.
+                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and ALLOWING local damage.", DebugFeature.PetProtection);
+                        try
+                        {
+                            ZNetPeer serverpeer = ZNet.instance.GetServerPeer();
+                            long ServerPeerID = serverpeer.m_uid;
+                            ZRoutedRpc.instance.InvokeRoutedRPC(ServerPeerID, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                           // ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
+                            BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage allowed.", DebugFeature.PetProtection);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            BetterTamesPlugin.LogIfDebug($"Exception while sending MercyKill RPC from non-owner: {ex}", DebugFeature.PetProtection);
+                        }
+
+                        // Allow local damage so the pet can die immediately on the hitting client.
+                        return true;
+>>>>>>> Stashed changes
                     }
 
                     // Lass den Schaden durch, die Flag übernimmt den Bypass

@@ -20,14 +20,29 @@ namespace BetterTames
         #region Constants
         public const string PluginId = "Koro.bettertames";
         public const string PluginName = "BetterTames";
+<<<<<<< Updated upstream
         public const string PluginVersion = "0.0.4";
+=======
+        public const string PluginVersion = "0.0.6";
+>>>>>>> Stashed changes
 
         public const string RPC_REQUEST_PET_PROTECTION = "BT_RequestPetProtection";
         public const string RPC_PET_PROTECTION_SYNC = "BT_PetProtectionSync";
+
         public const string RPC_TELEPORT_SYNC = "BT_TeleportSync";
+
         public const string RPC_PREPARE_PETS_FOR_TELEPORT = "BT_PreparePetsForTeleport";
         public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
+
         public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
+<<<<<<< Updated upstream
+=======
+        public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
+
+        // Neu: RPC zum Anfragen eines autoritativen "Unfollow" beim Owner
+        public const string RPC_REQUEST_UNFOLLOW = "BT_RequestUnfollow";
+        public const string RPC_EXECUTE_UNFOLLOW = "BT_ExecuteUnfollow";
+>>>>>>> Stashed changes
         #endregion
 
         #region Properties
@@ -116,8 +131,12 @@ namespace BetterTames
             {
                 LogIfDebug("Applying core feature patches...", DebugFeature.Initialization);
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
+<<<<<<< Updated upstream
                 Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
                 Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
+=======
+                Instance._harmony.PatchAll(typeof(MakeCommandable.Player_UpdateTeleport_Patch));
+>>>>>>> Stashed changes
                 Instance._harmony.PatchAll(typeof(PetProtection.ButcherKnifePatch));
                 LogIfDebug("Core feature patches applied.", DebugFeature.Initialization);
             }

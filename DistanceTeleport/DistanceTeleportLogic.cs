@@ -105,7 +105,14 @@ namespace BetterTames
             package.Write(targetPosition);
             package.Write(targetRotation);
             string zdoIDString = $"{zdo.m_uid.UserID}:{zdo.m_uid.ID}";
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "BT_TeleportSync", new object[] { zdoIDString, package });
+
+            // Finde den aktuellen Owner (Client) des ZDO
+            long ownerID = zdo.GetOwner();
+            ZNetPeer senderID = ZNet.instance.GetPeer(ownerID);
+
+            ZRoutedRpc.instance.InvokeRoutedRPC(senderID.m_uid, "BT_TeleportSync", new object[] { zdoIDString, package });
+
+            //ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "BT_TeleportSync", new object[] { zdoIDString, package });
 
             // --- Ende des extrahierten Codes ---
         }

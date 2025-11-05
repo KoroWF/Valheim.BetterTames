@@ -84,6 +84,10 @@
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />
+<<<<<<< Updated upstream
+=======
+    <Compile Include="MakeCommandable\ClearOnTeleport.cs" />
+>>>>>>> Stashed changes
     <Compile Include="MakeCommandable\MakeCommandable.cs" />
     <Compile Include="DistanceTeleport\DistanceTeleportPatch.cs" />
     <Compile Include="PetProtection\ButcherKnifePatch.cs" />

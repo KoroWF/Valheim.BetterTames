@@ -29,6 +29,65 @@ namespace BetterTames.MakeCommandable
             }
 
             MonsterAI monsterAI = __instance.GetComponent<MonsterAI>();
+<<<<<<< Updated upstream
+=======
+
+            if (monsterAI != null)
+            {
+                ZNetView znetView = __instance.GetComponent<ZNetView>();
+                ZDO zdo = znetView?.GetZDO();
+                string playerName = player.GetPlayerName();
+
+                bool zdoSaysFollowing = false;
+
+                if (zdo != null && zdo.IsValid())
+                {
+                    zdoSaysFollowing = !string.IsNullOrEmpty(zdo.GetString(ZDOVars.s_follow, ""));
+                }
+
+                // --- Nur wenn das Tier aktuell folgt, schalte auf "Bleib" ---
+                if (zdoSaysFollowing)
+                {
+                    if (zdo.IsOwner())
+                    {
+                        monsterAI.SetFollowTarget(null);
+                        zdo.Set(ZDOVars.s_follow, "");
+                        user.Message(MessageHud.MessageType.Center, __instance.GetHoverName() + " bleibt.");
+                        BetterTamesPlugin.LogIfDebug($"Owner cleared follow for {__instance.GetHoverName()} (local).", DebugFeature.MakeCommandable);
+                    }
+                    else
+                    {
+                        long ownerId = (long)zdo.m_uid.UserID;
+                        if (ZRoutedRpc.instance != null)
+                        {
+                            try
+                            {
+                                ZNetPeer serverpeer = ZNet.instance.GetServerPeer();
+                                long ServerPeerID = serverpeer.m_uid;
+
+                                BetterTamesPlugin.LogIfDebug($"Requesting owner {ownerId} (server peer {ServerPeerID}) to unfollow pet {__instance.GetHoverName()}.", DebugFeature.MakeCommandable);
+                                user.Message(MessageHud.MessageType.Center, __instance.GetHoverName() + " bleibt.");
+                                ZRoutedRpc.instance.InvokeRoutedRPC(ServerPeerID, BetterTamesPlugin.RPC_REQUEST_UNFOLLOW, new object[] { zdo.m_uid.ToString() });
+                                BetterTamesPlugin.LogIfDebug($"Requested owner {ownerId} to unfollow pet {__instance.GetHoverName()} (zdo.s_follow matched).", DebugFeature.MakeCommandable);
+                            }
+                            catch (System.Exception ex)
+                            {
+                                BetterTamesPlugin.LogIfDebug($"Failed to invoke unfollow RPC for {__instance.GetHoverName()}: {ex}", DebugFeature.MakeCommandable);
+                            }
+                        }
+                        else
+                        {
+                            BetterTamesPlugin.LogIfDebug($"ZRoutedRpc.instance is null - cannot request owner {ownerId} to unfollow pet {__instance.GetHoverName()}.", DebugFeature.MakeCommandable);
+                        }
+                    }
+
+                    __result = true;
+                    return false;
+                }
+            }
+
+            // --- Wenn das Tier niemandem folgt, führe "Follow" aus ---
+>>>>>>> Stashed changes
             if (monsterAI != null && monsterAI.GetFollowTarget() == null)
             {
                 int maxPets = BetterTamesPlugin.ConfigInstance.Tames.MaxFollowingPets.Value;
@@ -38,8 +97,11 @@ namespace BetterTames.MakeCommandable
                     int currentFollowerCount = 0;
                     string playerName = player.GetPlayerName();
 
+<<<<<<< Updated upstream
                     // NEU: Definiere einen Radius, in dem gesucht wird (z.B. 50 Meter)
                     // Diesen Wert könntest du auch in die Config auslagern!
+=======
+>>>>>>> Stashed changes
                     float checkRadius = 64f;
 
                     // GEÄNDERT: Wir nutzen Physics.OverlapSphere anstatt Character.GetAllCharacters()
