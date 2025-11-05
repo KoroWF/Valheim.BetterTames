@@ -1,4 +1,4 @@
-﻿using BepInEx;
+using BepInEx;
 using BetterTames.ConfigSynchronization;
 using HarmonyLib;
 using System;
@@ -21,11 +21,7 @@ namespace BetterTames
         #region Constants
         public const string PluginId = "Koro.bettertames";
         public const string PluginName = "BetterTames";
-<<<<<<< Updated upstream
-        public const string PluginVersion = "0.0.4";
-=======
         public const string PluginVersion = "0.0.6";
->>>>>>> Stashed changes
 
         public const string RPC_REQUEST_PET_PROTECTION = "BT_RequestPetProtection";
         public const string RPC_PET_PROTECTION_SYNC = "BT_PetProtectionSync";
@@ -36,18 +32,11 @@ namespace BetterTames
         public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
 
         public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
         public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
 
         // Neu: RPC zum Anfragen eines autoritativen "Unfollow" beim Owner
         public const string RPC_REQUEST_UNFOLLOW = "BT_RequestUnfollow";
         public const string RPC_EXECUTE_UNFOLLOW = "BT_ExecuteUnfollow";
->>>>>>> Stashed changes
-=======
-        public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
->>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
         #endregion
 
         #region Properties
@@ -127,6 +116,8 @@ namespace BetterTames
                 ApplyCorePatches();
                 _corePatchesAppliedSession = true;
             }
+            // Starte den TeleportMonitor (fügt eine Komponente zum Überwachen von Teleporten hinzu)
+            new GameObject("BT_TeleportMonitor").AddComponent<BetterTames.DistanceTeleport.TeleportMonitorBehaviour>();
 
         }
         #endregion
@@ -138,6 +129,7 @@ namespace BetterTames
             {
                 LogIfDebug("Applying initial patches (Initialization & PetProtection)...", DebugFeature.Initialization);
                 _harmony.PatchAll(typeof(PetProtection.PetProtectionPatch));
+                _harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
                 _harmony.PatchAll(typeof(InitializationPatches));
                 _harmony.PatchAll(typeof(PetProtection.EnemyHud_TestShow_Patch));
                 LogIfDebug("Initial patches applied.", DebugFeature.Initialization);
@@ -152,29 +144,9 @@ namespace BetterTames
         {
             try
             {
-                // Start the distance-check coroutine on the local player's MonoBehaviour instead of adding a new component.
-                if (Player.m_localPlayer != null)
-                {
-                    // store coroutine handle on the plugin instance so we can stop it later
-                    Instance._petMonitorCoroutine = Player.m_localPlayer.StartCoroutine(BetterTames.DistanceTeleport.PlayerPetMonitor.MonitorRoutine());
-                    LogIfDebug("Started PlayerPetMonitor coroutine on local player.", DebugFeature.TeleportFollow);
-                }
-                else
-                {
-                    LogIfDebug("Player.m_localPlayer was null when attempting to start PlayerPetMonitor.", DebugFeature.TeleportFollow);
-                }
-
                 LogIfDebug("Applying core feature patches...", DebugFeature.Initialization);
                 Instance._harmony.PatchAll(typeof(MakeCommandable.MakeCommandablePatch));
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-                Instance._harmony.PatchAll(typeof(DistanceTeleport.DistanceTeleportPatch));
-=======
->>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
-                Instance._harmony.PatchAll(typeof(PetProtection.StunBehaviorPatches));
-=======
                 Instance._harmony.PatchAll(typeof(MakeCommandable.Player_UpdateTeleport_Patch));
->>>>>>> Stashed changes
                 Instance._harmony.PatchAll(typeof(PetProtection.ButcherKnifePatch));
                 LogIfDebug("Core feature patches applied.", DebugFeature.Initialization);
             }

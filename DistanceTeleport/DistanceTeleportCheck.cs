@@ -15,6 +15,8 @@ namespace BetterTames.DistanceTeleport
         /// </summary>
         public static IEnumerator MonitorRoutine()
         {
+            BetterTamesPlugin.LogIfDebug("PlayerPetMonitor: MonitorRoutine started.", DebugFeature.TeleportFollow);
+
             while (true)
             {
                 yield return new WaitForSeconds(CheckInterval);
@@ -71,6 +73,6 @@ namespace BetterTames.DistanceTeleport
                     }
                 }
             }
-                        }
+        }
     }
 }

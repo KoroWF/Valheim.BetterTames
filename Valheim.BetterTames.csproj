@@ -14,6 +14,7 @@
     <Deterministic>true</Deterministic>
     <Nullable>disable</Nullable>
     <LangVersion>9.0</LangVersion>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -83,6 +84,7 @@
   <ItemGroup>
     <Compile Include="DistanceTeleport\DistanceTeleportCheck.cs" />
     <Compile Include="DistanceTeleport\DistanceTeleportLogic.cs" />
+    <Compile Include="DistanceTeleport\MonobehaviorCheckStarter.cs" />
     <Compile Include="InitializationPatches.cs" />
     <Compile Include="BetterTamesMain.cs" />
     <Compile Include="ConfigSyncronisation\ConfigSync.cs" />

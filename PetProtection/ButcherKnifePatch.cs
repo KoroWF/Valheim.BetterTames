@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 
 namespace BetterTames.PetProtection
 {
@@ -31,13 +31,6 @@ namespace BetterTames.PetProtection
                     }
                     else
                     {
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-                        // Sende RPC an alle, wenn ein anderer Client angreift
-                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to all clients.", DebugFeature.PetProtection);
-                        ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, targetZDOID);
-                        BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to all for ZDOID: {targetZDOID}.", DebugFeature.PetProtection);
-=======
                         // Non-owner: send RPC to server (zonehost) but ALLOW local damage as well.
                         // This makes the butcherknife damage apply immediately on the client (so the pet can die locally),
                         // while still notifying the server to perform the authoritative action.
@@ -57,18 +50,6 @@ namespace BetterTames.PetProtection
 
                         // Allow local damage so the pet can die immediately on the hitting client.
                         return true;
->>>>>>> Stashed changes
-                    }
-=======
-                        // Non-owner: send RPC to server (zonehost) and DO NOT apply local damage.
-                        // This avoids a race where the client kills the pet locally before the server sets the flag.
-                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and blocking local damage.", DebugFeature.PetProtection);
-                        ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
-                        BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage blocked until server processes request.", DebugFeature.PetProtection);
->>>>>>> a5f1efda1b988fcb24ec202b4d10a4964abc7bf7
-
-                        // Prevent local damage; server will handle the mercy kill if allowed.
-                        return false;
                     }
                 }
                 else
