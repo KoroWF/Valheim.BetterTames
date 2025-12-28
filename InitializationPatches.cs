@@ -1,5 +1,5 @@
-﻿using HarmonyLib;
-using System;
+﻿using System;
+using HarmonyLib;
 
 namespace BetterTames
 {
@@ -30,7 +30,6 @@ namespace BetterTames
             if (_zNetReadyCalled) return;
             if (ZNet.instance != __instance) return;
 
-            BetterTamesPlugin.LogIfDebug($"ZNet.Awake postfix triggered. Calling OnZNetReady...", DebugFeature.Initialization);
             try
             {
                 BetterTamesPlugin.OnZNetReady();

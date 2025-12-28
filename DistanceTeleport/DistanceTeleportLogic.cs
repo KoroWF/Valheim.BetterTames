@@ -1,9 +1,6 @@
-﻿using BepInEx.Configuration;
-using BetterTames.DistanceTeleport;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
-using BetterTames.ConfigSynchronization;
 namespace BetterTames
 {
 
@@ -69,6 +66,7 @@ namespace BetterTames
                 {
                     BetterTamesPlugin.LogIfDebug($"Pet {characterToTeleport.m_name} is in pet-protection stun phase — increasing teleport distance by 30f.", DebugFeature.TeleportFollow);
                     distanceBehind += 30f;
+
                 }
             }
             catch (Exception ex)
@@ -121,23 +119,23 @@ namespace BetterTames
                 rigidbody.WakeUp();
             }
 
-            // Senden der Synchronisations-Nachricht an alle Spieler
-            BetterTamesPlugin.LogIfDebug($"Teleported {characterToTeleport.m_name} to {targetPosition} (behind followTarget). Sending RPC.", DebugFeature.TeleportFollow);
-            ZPackage package = new ZPackage();
-            package.Write(targetPosition);
-            // write a normalized quaternion to reduce chance of non-unit quaternions being serialized
-            package.Write(targetRotation.normalized);
-            string zdoIDString = $"{zdo.m_uid.UserID}:{zdo.m_uid.ID}";
+            if (!nview.IsOwner())
+            {
+                // Senden der Synchronisations-Nachricht an alle Spieler
+                BetterTamesPlugin.LogIfDebug($"Teleported {characterToTeleport.m_name} to {targetPosition} (behind followTarget). Sending RPC.", DebugFeature.TeleportFollow);
+                ZPackage package = new ZPackage();
+                package.Write(targetPosition);
+                // write a normalized quaternion to reduce chance of non-unit quaternions being serialized
+                package.Write(targetRotation.normalized);
+                string zdoIDString = $"{zdo.m_uid.UserID}:{zdo.m_uid.ID}";
 
-            // Finde den aktuellen Owner (Client) des ZDO
-            long ownerID = zdo.GetOwner();
-            ZNetPeer senderID = ZNet.instance.GetPeer(ownerID);
-
-            ZRoutedRpc.instance.InvokeRoutedRPC(senderID.m_uid, "BT_TeleportSync", new object[] { zdoIDString, package });
-
-            //ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "BT_TeleportSync", new object[] { zdoIDString, package });
-
-            // --- Ende des extrahierten Codes ---
+                // Finde den aktuellen Owner (Client) des ZDO
+                ZPackage pkg = new ZPackage();
+                pkg.Write(zdo.m_uid); // ZDOID schreiben
+                pkg.Write(targetPosition);
+                pkg.Write(targetRotation);
+                Utils.RPCManager.TeleportSyncRPC.SendPackage(zdo.GetOwner(), pkg);
+            }
         }
 
         /// <summary>

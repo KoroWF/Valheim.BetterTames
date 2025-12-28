@@ -1,9 +1,9 @@
+using System;
 using BepInEx;
 using BetterTames.ConfigSynchronization;
 using HarmonyLib;
-using System;
-using System.Collections.Generic;
-using UnityEngine; // added for Coroutine
+using Jotunn.Utils;
+using UnityEngine;
 
 namespace BetterTames
 {
@@ -12,31 +12,24 @@ namespace BetterTames
         MakeCommandable,
         TeleportFollow,
         PetProtection,
-        Initialization
+        Initialization,
     }
 
     [BepInPlugin(PluginId, PluginName, PluginVersion)]
+    [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Minor)]
     public class BetterTamesPlugin : BaseUnityPlugin
     {
         #region Constants
         public const string PluginId = "Koro.bettertames";
         public const string PluginName = "BetterTames";
-        public const string PluginVersion = "0.0.6";
-
-        public const string RPC_REQUEST_PET_PROTECTION = "BT_RequestPetProtection";
-        public const string RPC_PET_PROTECTION_SYNC = "BT_PetProtectionSync";
+        public const string PluginVersion = "0.0.8";
 
         public const string RPC_TELEPORT_SYNC = "BT_TeleportSync";
-
-        public const string RPC_PREPARE_PETS_FOR_TELEPORT = "BT_PreparePetsForTeleport";
-        public const string RPC_RECREATE_PETS_AT_DESTINATION = "BT_RecreatePetsAtDest";
 
         public const string RPC_REQUEST_MERCY_KILL = "BT_RequestMercyKill";
         public const string RPC_NOTIFY_MERCY_KILL = "BetterTames_NotifyMercyKill";
 
-        // Neu: RPC zum Anfragen eines autoritativen "Unfollow" beim Owner
-        public const string RPC_REQUEST_UNFOLLOW = "BT_RequestUnfollow";
-        public const string RPC_EXECUTE_UNFOLLOW = "BT_ExecuteUnfollow";
+
         #endregion
 
         #region Properties
@@ -67,19 +60,18 @@ namespace BetterTames
 
             LogIfDebug("AWAKE: Config instances initialized.", DebugFeature.Initialization);
 
-            // Subscribe to config changes
+
             ConfigInstance.Tames.PetProtectionExceptionPrefabs.SettingChanged += OnExceptionPrefabsSettingChanged;
 
-            // Apply essential patches that need to run early
             ApplyInitialPatches();
         }
+
 
         private void OnDestroy()
         {
             LogIfDebug("OnDestroy called. Unpatching Harmony...", DebugFeature.Initialization);
             _harmony?.UnpatchSelf();
 
-            // Stop pet monitor coroutine if running
             try
             {
                 if (_petMonitorCoroutine != null && Player.m_localPlayer != null)
@@ -99,24 +91,19 @@ namespace BetterTames
         #region Initialization
         public static void OnZNetReady()
         {
-            LogIfDebug("ZNet is ready. Registering RPCs...", DebugFeature.Initialization);
             BetterTames.Utils.RPCManager.RegisterRPCs();
-            LogIfDebug($"RPC registration completed. ZRoutedRpc instance active: {ZRoutedRpc.instance != null}", DebugFeature.Initialization);
         }
 
         public static void OnLocalPlayerReady()
         {
             LogIfDebug("Local player is ready.", DebugFeature.Initialization);
 
-            // NEU: Initialisiere den PetProtectionPatch (lädt das Wisp-Prefab)
             PetProtection.PetProtectionPatch.Initialize();
-             // (Der Rest der Methode bleibt gleich)
             if (!_corePatchesAppliedSession)
             {
                 ApplyCorePatches();
                 _corePatchesAppliedSession = true;
             }
-            // Starte den TeleportMonitor (fügt eine Komponente zum Überwachen von Teleporten hinzu)
             new GameObject("BT_TeleportMonitor").AddComponent<BetterTames.DistanceTeleport.TeleportMonitorBehaviour>();
 
         }
@@ -160,7 +147,6 @@ namespace BetterTames
         #region Event Handlers
         private void OnExceptionPrefabsSettingChanged(object sender, EventArgs e)
         {
-            // Update the exception list when the config is changed
             PetProtection.PetProtectionPatch.UpdateExceptionPrefabs(ConfigInstance.Tames.PetProtectionExceptionPrefabs.Value);
         }
         #endregion
@@ -183,7 +169,7 @@ namespace BetterTames
                     shouldLog = ConfigInstance.Tames.DebugPetProtection.Value;
                     break;
                 case DebugFeature.Initialization:
-                    shouldLog = true; // Always log initialization steps for now
+                    shouldLog = true;
                     break;
                 default:
                     shouldLog = false;

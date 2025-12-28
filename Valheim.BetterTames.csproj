@@ -46,6 +46,9 @@
     <Reference Include="BepInEx">
       <HintPath>Assemblys\BepInEx.dll</HintPath>
     </Reference>
+    <Reference Include="Jotunn">
+      <HintPath>Assemblys\Jotunn.dll</HintPath>
+    </Reference>
     <Reference Include="Mono.Cecil">
       <HintPath>Assemblys\Mono.Cecil.dll</HintPath>
     </Reference>
@@ -95,7 +98,6 @@
     <Compile Include="PetProtection\PetProtectionPatch.cs" />
     <Compile Include="PetProtection\StunBehaviorPatches.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Utils\RPCHelper.cs" />
     <Compile Include="Utils\RPCManager.cs" />
   </ItemGroup>
   <ItemGroup>

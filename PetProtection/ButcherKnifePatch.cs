@@ -1,89 +1,64 @@
+﻿using System;
 using HarmonyLib;
 
 namespace BetterTames.PetProtection
 {
-    [HarmonyPatch(typeof(Character), "Damage")]
+    [HarmonyPatch]
     public static class ButcherKnifePatch
     {
+        [HarmonyPatch(typeof(Character), "Damage")]
         [HarmonyPrefix]
         [HarmonyPriority(Priority.First)]
         public static bool Prefix(Character __instance, HitData hit)
         {
-            // Debug: Bestätige, dass der Patch ausgeführt wird
-            BetterTamesPlugin.LogIfDebug("ButcherKnifePatch Prefix called for character: " + (__instance != null ? __instance.m_name : "null"), DebugFeature.PetProtection);
+            if (!__instance.IsTamed()) return true;
+            if (hit.GetAttacker() is not Player) return true;
 
-            // Prüfe, ob die Bedingungen für den ButcherKnife-Bypass erfüllt sind
-            if (CheckButcherKnifeBypass(__instance, hit))
+            float remainingHealth = __instance.GetHealth() - hit.GetTotalDamage();
+            if (remainingHealth > 0f) return true; // Nur tödliche Hits
+
+            if (!CheckButcherKnifeBypass(__instance, hit)) return true;
+
+            ZNetView nview = __instance.GetComponent<ZNetView>();
+            if (nview == null || !nview.IsValid())
             {
-                ZNetView nview = __instance.GetComponent<ZNetView>();
-                if (nview != null && nview.IsValid())
+                BetterTamesPlugin.LogIfDebug("ZNetView is null or invalid, cannot process MercyKill.", DebugFeature.PetProtection);
+                return true;
+            }
+
+            ZDOID zdoid = nview.GetZDO().m_uid;
+            BetterTamesPlugin.LogIfDebug($"Butcher Knife used on {__instance.m_name} (ZDOID: {zdoid}). IsOwner: {nview.IsOwner()}", DebugFeature.PetProtection);
+
+            if (nview.IsOwner())
+            {
+                BetterTamesPlugin.LogIfDebug($"Owner setting BT_MercyKill flag for {__instance.m_name} locally.", DebugFeature.PetProtection);
+                nview.GetZDO().Set("BT_MercyKill", true);
+            }
+            else
+            {
+                BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {zdoid} to server.", DebugFeature.PetProtection);
+                try
                 {
-                    ZDOID targetZDOID = nview.GetZDO().m_uid;
-                    BetterTamesPlugin.LogIfDebug($"Butcher Knife used on {__instance.m_name} (ZDOID: {targetZDOID}). IsOwner: {nview.IsOwner()}", DebugFeature.PetProtection);
-
-                    // If we are the owner of the ZDO, set the flag locally and allow damage
-                    if (nview.IsOwner())
-                    {
-                        BetterTamesPlugin.LogIfDebug($"Owner setting BT_MercyKill flag for {__instance.m_name} locally.", DebugFeature.PetProtection);
-                        nview.GetZDO().Set("BT_MercyKill", true);
-                        // Allow damage to proceed on the owner
-                        return true;
-                    }
-                    else
-                    {
-                        // Non-owner: send RPC to server (zonehost) but ALLOW local damage as well.
-                        // This makes the butcherknife damage apply immediately on the client (so the pet can die locally),
-                        // while still notifying the server to perform the authoritative action.
-                        BetterTamesPlugin.LogIfDebug($"Non-owner sending MercyKill RPC for ZDOID: {targetZDOID} to server and ALLOWING local damage.", DebugFeature.PetProtection);
-                        try
-                        {
-                            ZNetPeer serverpeer = ZNet.instance.GetServerPeer();
-                            long ServerPeerID = serverpeer.m_uid;
-                            ZRoutedRpc.instance.InvokeRoutedRPC(ServerPeerID, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
-                           // ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, BetterTamesPlugin.RPC_REQUEST_MERCY_KILL, new object[] { targetZDOID });
-                            BetterTamesPlugin.LogIfDebug($"MercyKill RPC sent to server for ZDOID: {targetZDOID}. Local damage allowed.", DebugFeature.PetProtection);
-                        }
-                        catch (System.Exception ex)
-                        {
-                            BetterTamesPlugin.LogIfDebug($"Exception while sending MercyKill RPC from non-owner: {ex}", DebugFeature.PetProtection);
-                        }
-
-                        // Allow local damage so the pet can die immediately on the hitting client.
-                        return true;
-                    }
+                    ZPackage pkg = new ZPackage();
+                    pkg.Write(zdoid);
+                    Utils.RPCManager.MercyKillRPC.SendPackage(ZNet.instance.GetServerPeer().m_uid, pkg);
                 }
-                else
+                catch (Exception ex)
                 {
-                    BetterTamesPlugin.LogIfDebug("ZNetView is null or invalid, cannot process MercyKill.", DebugFeature.PetProtection);
+                    BetterTamesPlugin.LogIfDebug($"Exception sending MercyKill RPC: {ex}", DebugFeature.PetProtection);
                 }
             }
 
-            return true; // Normal damage flow when not using butcher knife bypass
-        }   
+            return true;
+        }
 
         private static bool CheckButcherKnifeBypass(Character character, HitData hit)
         {
-            BetterTamesPlugin.LogIfDebug("Checking ButcherKnife bypass conditions...", DebugFeature.PetProtection);
-            Character attacker = hit.GetAttacker();
-            BetterTamesPlugin.LogIfDebug($"Attacker: {attacker != null}, IsPlayer: {attacker?.IsPlayer() ?? false}", DebugFeature.PetProtection);
+            if (character == null || !character.IsTamed()) return false;
+            if (hit.GetAttacker() is not Player player) return false;
 
-            if (attacker != null && attacker.IsPlayer())
-            {
-                Player playerAttacker = (Player)attacker;
-                ItemDrop.ItemData currentWeapon = playerAttacker.GetCurrentWeapon();
-                BetterTamesPlugin.LogIfDebug($"CurrentWeapon: {currentWeapon != null}, Name: {currentWeapon?.m_dropPrefab.name ?? "null"}", DebugFeature.PetProtection);
-
-                if (currentWeapon != null && currentWeapon.m_dropPrefab.name == "KnifeButcher")
-                {
-                    BetterTamesPlugin.LogIfDebug($"IsTamed check for {character.m_name}: {character.IsTamed()}", DebugFeature.PetProtection);
-                    if (character.IsTamed())
-                    {
-                        BetterTamesPlugin.LogIfDebug("Butcher Knife used on tamed animal. Bypassing pet protection.", DebugFeature.PetProtection);
-                        return true;
-                    }
-                }
-            }
-            return false;
+            var weapon = player.GetCurrentWeapon();
+            return weapon?.m_dropPrefab?.name == "KnifeButcher";
         }
     }
 }

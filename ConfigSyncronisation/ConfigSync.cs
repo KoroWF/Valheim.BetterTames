@@ -1,8 +1,8 @@
-﻿using BepInEx.Configuration;
-using System;
-using System.IO;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using BepInEx;
+using BepInEx.Configuration;
 
 namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
 {
@@ -43,25 +43,25 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                 TryRemoveDuplicateConfigEntriesFile();
 
                 // --- General ServerSync ---
-                ServerConfigLocked = cfg.Bind(SectionGeneral, "Lock Configuration", true, "If true on the server, this configuration file will be locked and synced to clients.");
+                ServerConfigLocked = BindAndSync(cfg, SectionGeneral, "Lock Configuration", true, "If true on the server, this configuration file will be locked and synced to clients.");
                 BetterTamesPlugin._configSync.AddLockingConfigEntry(ServerConfigLocked);
 
                 // --- MakeCommandable ---
                 MaxFollowingPets = BindAndSync(cfg, SectionMakeCommandable, "Max Following Pets", 5, new ConfigDescription("Maximum number of pets that can follow a player at the same time. -1 to disable.", new AcceptableValueRange<int>(-1, 20)));
 
-                DebugMakeCommandable = BindAndSync(cfg, SectionMakeCommandable, "Debug Logging", false, "Enables debug logging for this feature.");
+                DebugMakeCommandable = cfg.Bind(SectionMakeCommandable, "Debug Logging", false, "Enables debug logging for this feature.");
 
                 // --- TeleportFollow ---
                 TeleportFollowEnabled = BindAndSync(cfg, SectionTeleportFollow, "Enable", true, "Enables pets to teleport to the player if they get too far or the player uses a portal/teleports.");
                 TeleportOnDistanceMaxRange = BindAndSync(cfg, SectionTeleportFollow, "Max Distance For AutoTeleport", 64, new ConfigDescription("Maximum distance a pet can be from its owner before it attempts to teleport (if not in combat).", new AcceptableValueRange<int>(20, 64)));
-                DebugTeleportFollow = BindAndSync(cfg, SectionTeleportFollow, "Debug Logging", false, "Enables debug logging for teleport features.");
+                DebugTeleportFollow = cfg.Bind(SectionTeleportFollow, "Debug Logging", false, "Enables debug logging for teleport features.");
 
                 // --- PetProtection ---
                 PetProtectionEnabled = BindAndSync(cfg, SectionPetProtection, "Enable", true, "Prevents tamed creatures from dying by knocking them out instead. They recover after a set time.");
                 PetProtectionStunDuration = BindAndSync(cfg, SectionPetProtection, "Stun Duration", 10, new ConfigDescription("How long the pet stays stunned/downed (seconds).", new AcceptableValueRange<int>(5, 300)));
                 PetProtectionHealPercentage = BindAndSync(cfg, SectionPetProtection, "Heal After Stun Pct", 25, new ConfigDescription("Percentage of max HP the pet recovers after being downed. (0 = 1HP).", new AcceptableValueRange<int>(0, 100)));
                 PetProtectionExceptionPrefabs = BindAndSync(cfg, SectionPetProtection, "Exception Prefabs", "SummonedGolem_TW,SummonedSurtling_TW,SummonedSeeker_TW,SummonedImp_TW,Troll_Summoned,Charred_Twitcher_Summoned,Skeleton_Friendly,JC_Skeleton,enemy_skeleton_summoned", "A comma-separated list of prefab names that should NOT receive pet protection.");
-                DebugPetProtection = BindAndSync(cfg, SectionPetProtection, "Debug Logging", false, "Enables debug logging for this feature.");
+                DebugPetProtection = cfg.Bind(SectionPetProtection, "Debug Logging", false, "Enables debug logging for this feature.");
 
             }
 
@@ -96,24 +96,21 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
             {
                 try
                 {
-                    // Pfad der Plugin-Config: BepInEx/config/<PluginId>.cfg
                     string cfgPath = Path.Combine(Paths.ConfigPath, $"{BetterTamesPlugin.PluginId}.cfg");
                     if (!File.Exists(cfgPath)) return;
 
                     var lines = File.ReadAllLines(cfgPath);
                     var output = new List<string>(lines.Length);
 
-                    // Wir tracken bereits gesehene Schlüssel pro Sektion (Section|Key)
                     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     string currentSection = "";
 
                     foreach (var rawLine in lines)
                     {
-                        // Preserve original whitespace and comments
+
                         string line = rawLine;
                         string trimmed = line.Trim();
 
-                        // Section header
                         if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
                         {
                             currentSection = trimmed.Substring(1, trimmed.Length - 2).Trim();
@@ -121,21 +118,21 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                             continue;
                         }
 
-                        // Kommentare oder leere Zeilen -> beibehalten
+
                         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#"))
                         {
                             output.Add(line);
                             continue;
                         }
 
-                        // Key = Value - Erkennung
+
                         int equalsIndex = line.IndexOf('=');
                         if (equalsIndex > 0)
                         {
                             string keyPart = line.Substring(0, equalsIndex).Trim();
                             if (string.IsNullOrEmpty(keyPart))
                             {
-                                // unerwartet, einfach beibehalten
+
                                 output.Add(line);
                                 continue;
                             }
@@ -143,7 +140,7 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                             string identifier = $"{currentSection}|{keyPart}";
                             if (seen.Contains(identifier))
                             {
-                                // Duplikat gefunden -> überspringen (erste Definition behalten)
+
                                 continue;
                             }
                             else
@@ -154,11 +151,10 @@ namespace BetterTames.ConfigSynchronization // <-- Korrigierter Namespace
                             }
                         }
 
-                        // Alle anderen Zeilen vorbehaltlos beibehalten
                         output.Add(line);
                     }
 
-                    // Überschreibe nur, falls sich der Inhalt ändert (vermeidet unnötiges Timestamp-Update)
+
                     bool contentChanged = output.Count != lines.Length;
                     if (!contentChanged)
                     {
